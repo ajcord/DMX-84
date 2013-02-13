@@ -8,7 +8,7 @@
 .dw AXM_HEADER
 
 .dw Ax1_End
-.db %00010011
+.db %00110011
 .dw $0BEF ;startTmr
 .db AXM_INLINE
 .db AXM_1ARG
@@ -18,7 +18,8 @@
 ;******************************************
 ;Initializes the DMX driver.
 ;Usage: StartDMX(PTR) where PTR is a pointer to the DMX data (256 bytes minimum).
-;PTR doesn't need to be zeroed out because the command does it for you.
+;PTR should be zeroed out before calling the command or else random DMX data will
+;be sent (unless you prepopulate PTR with DMX data).
 ;This command needs to be as close to the beginning of the program as possible
 ;because the DMX cable cannot be plugged in until the link cable is initialized.
 di
@@ -28,18 +29,11 @@ out (8),a
 ld a,0
 out (0),a       ;Initialize the link cable (set the tip high for the DMX "break").
 out ($54),a     ;Start outputting power to the transceiver from the USB port.
-;The area the data will be stored in must be cleared before sending the first DMX
-;signal. The pointer also needs saved for later. The pointer should be passed in
-;as hl (first argument of the command).
-ld ($8251),hl   ;bootTemp will store the DMX data location from now on.
-ld b,0          ;Load the number of bytes to clear (256).
-ClearByte:
-    ld (hl),0       ;Clear the byte at hl.
-    inc hl          ;Move forward one byte.
-    djnz ClearByte  ;Jump back and keep clearing bytes
+;The pointer should be passed in as hl (only argument of the command).
+ld ($8251),hl   ;bootTemp will store the DMX data location.
 
 ld hl,$8253     ;Where the interrupt loop counter will be.
-ld (hl),54      ;Set up the counter.
+ld (hl),54      ;Initialize the counter.
 
 ;Set up the interrupt to send a DMX packet at ~2 Hz. The DMX spec says it must
 ;send a packet at least once per second. 2 Hz won't make for nice fading, but
@@ -59,6 +53,7 @@ out (3),a
 im 2
 ei
 pop af
+ld hl,1         ;Return 1 since the DMX signal was initialized.
 jr Ax1_End      ;Return control to the program.
 
 Interrupt:
@@ -151,7 +146,7 @@ Interrupt:
         ld a,0        ;The next two bits are high to signal the end of the byte. 7 cycles.
         out (0),a     ;11 cycles.
         ;Wait for 85 cycles:
-        ld b,7        ;7 cycles.
+        ld b,8        ;7 cycles.
         dec b         ;Again, only for timing. 6 cycles.
         dec b         ;6 cycles.
         dec b         ;6 cycles.
@@ -179,7 +174,7 @@ Skip:
 Ax1_End:
 
 .dw Ax2_End
-.db %00010011
+.db %00110011
 .dw $D0BB ;stdDev()
 .db AXM_INLINE
 .db AXM_0ARG
