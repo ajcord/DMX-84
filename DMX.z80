@@ -8,202 +8,124 @@
 .dw AXM_HEADER
 
 .dw Ax1_End
-.db %00110011
+.db AXM_ALL
 .dw $0BEF ;startTmr
 .db AXM_INLINE
 .db AXM_1ARG
 .org 0
 ;******************************************
-;StartDMX()
+;SetupDMX()
 ;******************************************
-;Initializes the DMX driver.
-;Usage: StartDMX(PTR) where PTR is a pointer to the DMX data (256 bytes minimum).
-;PTR should be zeroed out before calling the command or else random DMX data will
-;be sent (unless you prepopulate PTR with DMX data).
-;This command needs to be as close to the beginning of the program as possible
-;because the DMX cable cannot be plugged in until the link cable is initialized.
-di
-push af
-ld a,%10000000  ;Disable the link assist to allow for manual link port control.
-out (8),a
-ld a,0
-out (0),a       ;Initialize the link cable (set the tip high for the DMX "break").
-out ($54),a     ;Start outputting power to the transceiver from the USB port.
-;The pointer should be passed in as hl (only argument of the command).
-ld ($8251),hl   ;bootTemp will store the DMX data location.
-
-ld hl,$8253     ;Where the interrupt loop counter will be.
-ld (hl),54      ;Initialize the counter.
-
-;Set up the interrupt to send a DMX packet at ~2 Hz. The DMX spec says it must
-;send a packet at least once per second. 2 Hz won't make for nice fading, but
-;sending too often will make the main program really slow.
-
-ld hl,Interrupt
-ld ($993F),hl
-ld ($997F),hl
-ld ($99BF),hl
-ld ($99FF),hl
-ld a,$99
-ld i,a
-ld a,%00000110  ;Make sure the interrupt is at the right speed (108 Hz).
-out (4),a
-ld a,%00001011  ;Enable interrupts.
-out (3),a
-im 2
-ei
-pop af
-ld hl,1         ;Return 1 since the DMX signal was initialized.
-jr Ax1_End      ;Return control to the program.
-
-Interrupt:
-    ex af,af'
-    exx
-    ld a,0            ;Disable interrupts.
-    out(3),a
-    
-    B_CALL(_KbdScan)  ;Makes getKey work right.
-    ld hl,$8253
-    dec (hl)          ;Count the interrupts
-    jp nz,Skip        ;Skip the DMX transmission for now
-    
-    ld (hl),54        ;Reload the counter
-    
-    ;***********************************
-    ;Start sending the DMX signal
-    ;***********************************
-    ;Send the break header (at least 22 low bits).
-    ld a,1
-    out (0),a
-    ;Wait for 1422 cycles (24 bits, to be on the safe side):
-    ld b,108      ;7 cycles.
-    djnz 0        ;13/8 cycles.
-    nop           ;4 cycles.
-    nop           ;4 cycles.
-    nop           ;4 cycles.
-    nop           ;4 cycles.
-    ;Stop waiting. Next, send the mark-after-break (at least 2 high bits).
-    ld a,0        ;7 cycles.
-    out (0),a     ;11 cycles.
-    ;Wait for 162 cycles (3 bits, to be on the safe side):
-    ld b,12       ;7 cycles.
-    djnz 0        ;13/8 cycles.
-    nop           ;4 cycles.
-    ;Stop waiting. Next, send the start code (2 low bits, 0x00, and 2 high bits).
-    ld a,1        ;9 low bits. 7 cycles.
-    out (0),a     ;11 cycles.
-    ;Wait for 522 cycles:
-    ld b,40       ;7 cycles.
-    djnz 0        ;13/8 cycles.
-    ;Stop waiting. Send 2 high bits to signal the end of the start code.
-    ld a,0        ;7 cycles.
-    out (0),a     ;11 cycles.
-    ;Wait for 78 cycles:
-    ld b,5        ;7 cycles.
-    ld b,5        ;7 cycles.
-    djnz 0        ;13/8 cycles.
-    nop           ;4 cycles.
-    ;Stop waiting. Begin sending the DMX data (this is where it gets rough).
-
-
-    ld hl,($8251) ;Load the start of the data. 10 cycles.
-    ld b,0        ;The number of bytes to send (256). DMX allows up to 512, but
-                  ;I picked 256 because it fits in a single register. 7 cycles.
-    ld c,0        ;This is only used to get the carry flag. 7 cycles.
-
-
-    ByteLoop:     ;Prepares to send a byte.
-        ld a,1        ;The first bit must be low to signal the start of a byte. 7 cycles.
-        out (0),a     ;This buys me another 60 cycles to calculate the first bit. 11 cycles.
-        ld e,b        ;djnz needs b to hold both the number of bytes left and the
-                      ;number of bits left, hence the backup to e. 4 cycles.
-        ld b,9        ;Number of bits to send (plus 1, see below). 7 cycles.
-        dec b         ;Just to waste cycles. 6 cycles.
-        ld d,(hl)     ;Load the byte to send. 7 cycles.
-        inc hl        ;Move to the next byte. 6 cycles.
-
-
-        BitLoop:      ;Reads and sends a bit.
-            rrc d         ;Shift bit 0 of d into the carry flag and shift the rest of d
-                          ;to the right. 8 cycles.
-            ld a,1        ;Prepare the value to send to the link port. 7 cycles.
-            sbc a,c       ;Subtract c and the carry flag from a (remember that c is 0, so
-                          ;it essentially stores the inverted carry flag to a). 4 cycles.
-            out (0),a     ;Output high (0) if the carry flag was 1, low (1) if it was 0. 11 cycles.
-            ;Wait for 17 cycles: (same as the total cycles of ByteLoop after out (0),a)
-            ld a,1        ;7 cycles.
-            dec a         ;6 cycles.
-            nop           ;4 cycles.
-            ;Stop waiting.
-            djnz BitLoop  ;Keep sending bits until the whole byte is sent. 13/8 cycles.
-
-
-        ;Wait for 18 cycles:
-        ld a,0        ;7 cycles.
-        ld a,0        ;7 cycles.
-        nop           ;4 cycles.
-        ;Stop waiting.
-        ld a,0        ;The next two bits are high to signal the end of the byte. 7 cycles.
-        out (0),a     ;11 cycles.
-        ;Wait for 85 cycles:
-        ld b,8        ;7 cycles.
-        dec b         ;Again, only for timing. 6 cycles.
-        dec b         ;6 cycles.
-        dec b         ;6 cycles.
-        djnz 0        ;13/8 cycles.
-        ;Stop waiting.
-        ld b,e        ;Get the backup of b to see how many bytes have been sent. 4 cycles.
-        djnz ByteLoop ;Keep going until 256 bytes have been sent. 13/8 cycles.
-
-
-    ;Wait for 23 cycles to make sure the last bit gets through:
-    ld a,2        ;7 cycles.
-    dec a         ;6 cycles.
-    dec a         ;6 cycles.
-    nop           ;4 cycles.
-    ;Stop waiting.
-    
-Skip:
-    ld a,%00001011
-    out (3),a         ;Enable interrupts.
-    ex af,af'
-    exx
-    ei
-    ret
+;Initializes the DMX transmitter and sets up the calc for communication.
+;Usage: SetupDMX(PTR) where PTR is a pointer to the DMX data (256 bytes minimum).
+;PTR should be zeroed out first.
+    push af
+    ld a,%10000000  ;Disable the link assist to allow for manual link port control.
+    out (8),a
+    ld a,0
+    out (0),a       ;Initialize the link cable (let TX and RX idle).
+    out ($54),a     ;Start outputting power to the transmitter from the USB port.
+    ld ($8251),hl   ;bootTemp will store the DMX data location from now on.
+    pop af
 
 Ax1_End:
 
 .dw Ax2_End
-.db %00110011
+.db AXM_ALL
 .dw $D0BB ;stdDev()
 .db AXM_INLINE
 .db AXM_0ARG
 .org 0
 ;******************************************
-;StopDMX
+;ShutDownDMX
 ;******************************************
-;Shut down the DMX driver.
-;Usage: StopDMX
+;Shut down the DMX transmitter.
+;Usage: ShutDownDMX
 ;Use it before the main program returns or else bad things will happen.
-;This command prevents unnecessary battery drain and returns to normal
-;interrupt mode for the OS.
+;This command prevents unnecessary battery drain.
 di
-push a
-ld a,%00001011  ;Enable hardware.
-out (3),a
-ld a,0
-out (0),a       ;Stop holding the link port low, if it was before.
-ld a,2
-out ($54),a     ;Stop sending power to the transceiver.
-pop a
-im 1            ;Re-enable the OS interrupt.
-ei
+    push af
+;...Insert code to tell the transmitter to start shutting down...
+    ld a,$0B        ;Enable normal interrupts.
+    out (3),a
+    ld a,0
+    out (0),a       ;Stop holding the lines low, if they were before.
+    ld a,2
+    out ($54),a     ;Stop sending power to the transceiver.
+    pop af
+    ei
 
 Ax2_End:
 
+.dw Ax3_End
+.db AXM_ALL
+.dw $0000 ;Can only be called from other commands
+.db AXM_SUB
+.db AXM_1ARG
+.org 0
+;******************************************
+;SendByte - command only, no token
+;******************************************
+;Sends a single byte over TX.
+;Format:
+;1 low start bit
+;8 data bits
+;1 parity bit
+;1 high stop bit
+;Byte to be sent should be passed in as C
+    di
+    push af
+    ld a,1
+    out (0),a       ;Send the start bit on TX
+;Wait 23 cycles:
+    ld a,0          ;7 cycles
+    nop             ;4 cycles
+    nop             ;4 cycles
+    nop             ;4 cycles
+    nop             ;4 cycles
+;Stop waiting. Send the bits:
+    ld b,8                   ;7 cycles
+BitLoop:
+    rrc c                ;8 cycles
+    jr c,Low             ;12/7 cycles
+    ld a,0               ;7 cycles
+    jr Output            ;12 cycles
+Low:
+    ld a,1               ;7 cycles
+    ld a,1               ;7 cycles to waste time
+Output:
+    out (0),a            ;11 cycles
+    ;Wait 17 cycles:
+    push af              ;10 cycles
+    ld a,0               ;7 cycles
+    ;Stop waiting.
+    djnz BitLoop         ;13/8 cycles
+
+;Wait 27 cycles:
+    pop af                   ;10 cycles
+    push af                  ;10 cycles
+    ld a,0                   ;7 cycles
+;Stop waiting. Detect parity of C to send it out next.
+    ld a,c                   ;4 cycles
+    and c                    ;4 cycles
+    jp pe,ParityLow          ;10 cycles
+    ld a,0                   ;7 cycles
+    jr ParityOutput          ;12 cycles
+ParityLow:
+    ld a,1               ;7 cycles
+    jr ParityOutput      ;12 cycles
+ParityOutput:
+    out (0),a            ;11 cycles
+;TODO: Wait 75 cycles, then output stop bit (high)
+
+    pop af
+    pop af
+    ei
+Ax3_End:
+
 .dw AXM_END
 
-.db $8C,$05,9,"StartDMX("
+.db $8C,$05,9,"SetupDMX("
 .db $C4,$03,7,"StopDMX"
 
 .end
