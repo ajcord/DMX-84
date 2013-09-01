@@ -26,4 +26,4 @@ The hardware driver is an Arduino Pro Mini 328 - 5V/16MHz produced by Sparkfun. 
 
 The Arduino will connect to the calculator through a combination of a 2.5mm audio jack for the serial data and a USB Mini B to FTDI adapter for power and firmware updates. The Arduino will transmit DMX packets over a 5-pin XLR female jack. The 2.5mm jack shunts will probably also be connected to two spare pins on the Arduino so that the Arduino can check whether the calculator is disconnected and can perform any necessary actions based on that.
 
-The adapter will most likely be housed in a small aluminum enclosure, painted black for theater use.
+The adapter will be housed in a small aluminum enclosure, painted black for theater use.
