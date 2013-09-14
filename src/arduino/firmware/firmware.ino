@@ -178,13 +178,13 @@ void loop() {
     
     case 0xE0: {
       //Stop transmitting DMX
-      DmxSimple.maxChannels(0);
+      DmxSimple.maxChannel(0);
       ResetStatus();
       break;
     }
     case 0xE1: {
       //Start transmitting DMX
-      DmxSimple.maxChannels(maxChannels);
+      DmxSimple.maxChannel(maxChannels);
       ResetStatus();
       break;
     }
@@ -264,7 +264,7 @@ void ResetStatus() {
   //Sets the current status based on the value of flags
   if (!dmxEnabled) {
     currentStatus = 3;
-  } else if (dboEnabled) {
+  } else if (dBO) {
     currentStatus = 2;
   } else {
     currentStatus = 1;
