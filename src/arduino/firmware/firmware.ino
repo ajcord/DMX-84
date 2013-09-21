@@ -1,26 +1,26 @@
-/* This program allows you to set DMX channels over the serial port.
-**
-** After uploading to Arduino, switch to Serial Monitor and set the baud rate
-** to 9600.
-**
-** For more details, and compatible Processing sketch,
-** visit http://code.google.com/p/tinkerit/wiki/SerialToDmx
-**
-** Help and support: http://groups.google.com/group/dmxsimple       */
+/* The DATA Project
+ *
+ * By Alex Cordonnier
+ *
+ * Arduino firmware v0.1
+ *
+ * After uploading to Arduino, switch to Serial Monitor and set the baud rate
+ * to 9600.
+ */
 
 #include <DmxSimple.h>
 #define ledPin 13
 
-const byte VERSION = 0x01; //Stores the version number. High nibble = major, low nibble = minor. Please increment only on breaking changes.
+const byte VERSION = 0x01; //Stores the version number. High nibble = major version, low nibble = minor version. Please increment only on breaking changes.
 
 word maxChannels;
 byte DMX[512] = {0}; //Stores a buffer of the DMX universe
 
 byte cmd = 0; //Stores the last command received
 
-bool lastCmdNoOp = false; //Stores whether the last command was a no-op
-bool dBO = false; //Stores whether the digital blackout is active
-bool dmxEnabled = true; //Stores whether the DMX output is enabled
+bool wasLastCmdNoOp = false; //Stores whether the last command was a no-op
+bool isDigitalBlackoutEnabled = false; //Stores whether the digital blackout is active
+bool isDmxEnabled = true; //Stores whether the DMX output is enabled
 
 byte lastError = 0; //Stores the most recent error code
 byte currentStatus = 0x80; //Stores the current Arduino status
@@ -42,7 +42,12 @@ void loop() {
   cmd = Serial.read();
   switch (cmd) {
     case 0x00: {
-      //No-op/heartbeat
+      //No-op
+      Serial.write(0xFF);
+      break;
+    }
+    case 0x01: {
+      //Heartbeat
       Serial.write(0xFF);
       break;
     }
@@ -123,13 +128,13 @@ void loop() {
       for (int i=0; i < maxChannels; i++) {
         DmxSimple.write(i, 0);
       }
-      dBO = true;
+      isDigitalBlackoutEnabled = true;
       ResetStatus();
       break;
     }
     case 0x29: {
       //End a digital blackout
-      dBO = false;
+      isDigitalBlackoutEnabled = false;
       UpdateDMX();
       ResetStatus();
       break;
@@ -197,7 +202,7 @@ void loop() {
     }
     case 0xF0: {
       //Initiate safe shutdown sequence - only works directly after a no-op
-      if (lastCmdNoOp) {
+      if (wasLastCmdNoOp) {
       
         DmxSimple.maxChannel(0); //Disable DMX transmission
         
@@ -208,7 +213,7 @@ void loop() {
     }
     case 0xF1: {
       //Initiate soft reset - only works directly after a no-op
-      if (lastCmdNoOp) {
+      if (wasLastCmdNoOp) {
         asm volatile ("jmp 0");
       }
       break;
@@ -234,7 +239,7 @@ void loop() {
       break;
     }
   }
-  lastCmdNoOp = (cmd == 0x00);
+  wasLastCmdNoOp = (cmd == 0x00);
 }
 
 void UpdateChannel(word chan, byte val) {
@@ -245,7 +250,7 @@ void UpdateChannel(word chan, byte val) {
 
 void UpdateDMX() {
   //Updates the DmxSimple channels with the stored values in DMX[]
-  if (dmxEnabled && !dBO) { //Prevent updating the DMX output when digital blackout is enabled or DMX is disabled
+  if (isDmxEnabled && !isDigitalBlackoutEnabled) { //Prevent updating the DMX output when digital blackout is enabled or DMX is disabled
     for (int i=0; i < maxChannels; i++) {
       DmxSimple.write(i, DMX[i]);
     }
@@ -254,7 +259,7 @@ void UpdateDMX() {
 
 void SetMaxChannels(word maxCh) {
   //Sets the maximum number of channels to transmit
-  if (dmxEnabled && maxCh > 0) { //Setting max channels to zero disables DMX, so prevent doing that accidentally
+  if (isDmxEnabled && maxCh > 0) { //Setting max channels to zero disables DMX, so prevent doing that accidentally
     maxChannels = maxCh;
     DmxSimple.maxChannel(maxCh);
   }
@@ -262,9 +267,9 @@ void SetMaxChannels(word maxCh) {
 
 void ResetStatus() {
   //Sets the current status based on the value of flags
-  if (!dmxEnabled) {
+  if (!isDmxEnabled) {
     currentStatus = 3;
-  } else if (dBO) {
+  } else if (isDigitalBlackoutEnabled) {
     currentStatus = 2;
   } else {
     currentStatus = 1;
