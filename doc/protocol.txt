@@ -1,0 +1,55 @@
+Calculator-side:
+-Use standard TI link routine? (9600 baud)
+  -No, that protocol is completely weird. TODO: find/write a standard serial implementation at 9600 baud.
+
+Commands:
+First byte is the command. Parameters come next for commands that require additional data.
+00h: no-op. Polls the transmitter, which should respond with FFh. Must be the command immediately preceding any "dangerous" command, such as a shutdown/reset command.
+01h: heartbeat. Polls the transmitter, which responds with FFh. Exactly the same as no-op, except it doesn't allow dangerous commands to execute.
+10h and 11h: single channel packet. Next byte is LSB of channel number, third byte is channel value.
+20h: set 256 channels at once. Next 256 bytes are channel values for channels 0-255.
+21h: set 256 channels at once. Same format as above, but for channels 256-512.
+22h: set multiple channels at once, starting from zero. Byte 1: length of data. Remaining bytes are channel data for channels 0 to Byte1.
+23h: set all channels to the same value. Next byte is channel value.
+24h: increase all channels by a value. Next byte is change value.
+25h: decrease all channels by a value. Next byte is change value.
+28h: start digital blackout (channel values stay in transmitter memory, but it broadcasts a blackout)
+29h: end digital blackout (start transmitting stored DMX data again)
+30h: copy channel data from 256-512 to 0-255
+31h: copy channel data from 0-255 to 256-512
+32h: exchange channel data between 0-255 and 256-512
+33h: exchange channel data between 2 ranges. Byte 1: first channel (0-255). Byte 2: second channel (256-512). Byte 3: number of channels to copy
+40h and 41h: request stored channel value for specific channel. Same format as 10h and 11h.
+42h: request data from all 512 channels at once.
+50h-DFh: reserved for future use
+E0h: start transmitting DMX
+E1h: stop transmitting DMX
+E2h and E3h: set number of channels to broadcast (E2 for 0-255, E3 for 256-512). You can still set channels that aren't being broadcast (as scratch memory, for example - if broadcasting 256 channels, then channels 256-512 could be a second cue or a buffer).
+F0h: start shutdown sequence - only works immediately after no-op as a safety measure
+     -once the transmitter replies with FFh, wait a few milliseconds and then it's safe to cut power to USB
+F1h: trigger soft reset - only works if the previous command was no-op
+F8h: request current status of transmitter
+F9h: request last error code (may not be current)
+FAh: request firmware version number (1 byte, most significant nibble=major, least significant nibble=minor; e.g. 41h=v4.1)
+
+Error codes:
+00h: no error
+01h: attempted to edit DMX values while DMX is disabled
+02h: attempted to edit DMX output while digital blackout is enabled
+03h: attempted to execute protected command when last command wasn't a no-op
+10h: transmission timed out
+11h: invalid data in bulk transfer
+20h: invalid/out-of-range value
+21h: unknown command received
+FFh: unknown error
+
+Status codes:
+00h: initializing
+01h: OK
+02h: digital blackout enabled
+03h: DMX disabled
+FEh: getting ready to power down
+FFh: ready for power down any moment
+
+Notes:
+-Protected commands must be received less than 1 second after the preceding no-op command.
