@@ -3,129 +3,266 @@
 #include "Axe.inc"
 .list
 
-#define B_CALL(xxxx) rst 28h \ .dw xxxx
+#define bcall(xxxx) rst 28h \ .dw xxxx
 
 .dw AXM_HEADER
 
 .dw Ax1_End
 .db AXM_ALL
 .dw $0BEF ;startTmr
-.db AXM_INLINE
-.db AXM_1ARG
+.db AXM_SUB
+.db AXM_0ARG
 .org 0
 ;******************************************
-;SetupDMX()
+;SetupDMX
 ;******************************************
-;Initializes the DMX transmitter and sets up the calc for communication.
-;Usage: SetupDMX(PTR) where PTR is a pointer to the DMX data (256 bytes minimum).
-;PTR should be zeroed out first.
-    push af
-    ld a,%10000000  ;Disable the link assist to allow for manual link port control.
-    out (8),a
-    ld a,0
-    out (0),a       ;Initialize the link cable (let TX and RX idle).
-    out ($54),a     ;Start outputting power to the transmitter from the USB port.
-    ld ($8251),hl   ;bootTemp will store the DMX data location from now on.
-    pop af
+;Performs the handshake with the transmitter
+    ;;TODO: Make sure this turns on all the necessary ports.
+    ;;http://wikiti.brandonw.net/index.php?title=83Plus:Ports:54
+    ;ld a,C4h
+    ;out (54h),a     ;Turn on USB power to the transmitter
+    
+    AppOnErr Ax1_Link_Err
+    bcall(_SendReadyPacket)
+    AppOffErr
+    ld hl,1 ;Return 1 for success
+    ret
+Ax1_Link_Err:
+    ld hl,0 ;Return zero for failure
+    ret
 
 Ax1_End:
 
 .dw Ax2_End
 .db AXM_ALL
 .dw $D0BB ;stdDev()
-.db AXM_INLINE
+.db AXM_SUB
 .db AXM_0ARG
 .org 0
 ;******************************************
 ;ShutDownDMX
 ;******************************************
-;Shut down the DMX transmitter.
-;Usage: ShutDownDMX
-;Use it before the main program returns or else bad things will happen.
-;This command prevents unnecessary battery drain.
-di
-    push af
-;...Insert code to tell the transmitter to start shutting down...
-    ld a,$0B        ;Enable normal interrupts.
-    out (3),a
-    ld a,0
-    out (0),a       ;Stop holding the lines low, if they were before.
-    ld a,2
-    out ($54),a     ;Stop sending power to the transceiver.
-    pop af
-    ei
+;Gracefully shut down the DMX transmitter.
+;Use it before the main program returns.
+    ;send no-op to disable protection
+    AppOnErr Ax2_Link_Err
+    ld a,15h
+    ld hl,OP1
+    ld (hl),0
+    ld de,1
+    bcall(_SendRAMCmd)
+    AppOffErr
+    
+    ;receive ACK
+    AppOnErr Ax2_Link_Err
+    bcall(_ReceiveAck)
+    AppOffErr
+    ;receive echo
+    AppOnErr Ax2_Link_Err
+    ld bc,1
+    ld de,OP1
+    bcall(_GetDataPacket)
+    AppOffErr
+    
+    ;send F0h (shutdown)
+    AppOnErr Ax2_Link_Err
+    ld a,15h
+    ld hl,OP1
+    ld (hl),F0h
+    ld de,1
+    bcall(_SendRAMCmd)
+    AppOffErr
+    
+    ;receive ACK
+    AppOnErr Ax2_Link_Err
+    bcall(_ReceiveAck)
+    AppOffErr
+    ;receive power down notification (FFh)
+    AppOnErr Ax2_Link_Err
+    ld bc,1
+    ld de,OP1
+    bcall(_GetDataPacket)
+    AppOffErr
+    ;receive EOT
+    AppOnErr Ax2_Link_Err
+    bcall(_Get4Bytes)
+    AppOffErr
+    ;;wait for ~222us to give the transmitter time to finish up
+    ;ld b,255
+    ;djnz 0
+    
+    ;;TODO: Make sure this turns off all the relevant ports.
+    ;;http://wikiti.brandonw.net/index.php?title=83Plus:Ports:54
+    ;ld a,2
+    ;out (54h),a     ;Stop sending power to the transceiver.
+    
+    ld hl,1 ;Return 1 for success
+    ret
+Ax2_Link_Err:
+    ld hl,0 ;Return zero for link failure
+    ret
 
 Ax2_End:
 
 .dw Ax3_End
 .db AXM_ALL
-.dw $0000 ;Can only be called from other commands
+.dw $D0BB ;stdDev()
 .db AXM_SUB
 .db AXM_1ARG
 .org 0
 ;******************************************
-;SendByte - command only, no token
+;SendChannels(ptr)
+;Sets channels 0-511
+;ptr: pointer to 512 channels to send
 ;******************************************
-;Sends a single byte over TX.
-;Format:
-;1 low start bit
-;8 data bits
-;1 parity bit
-;1 high stop bit
-;Byte to be sent should be passed in as C
-    di
-    push af
-    ld a,1
-    out (0),a       ;Send the start bit on TX
-;Wait 23 cycles:
-    ld a,0          ;7 cycles
-    nop             ;4 cycles
-    nop             ;4 cycles
-    nop             ;4 cycles
-    nop             ;4 cycles
-;Stop waiting. Send the bits:
-    ld b,8                   ;7 cycles
-BitLoop:
-    rrc c                ;8 cycles
-    jr c,Low             ;12/7 cycles
-    ld a,0               ;7 cycles
-    jr Output            ;12 cycles
-Low:
-    ld a,1               ;7 cycles
-    ld a,1               ;7 cycles to waste time
-Output:
-    out (0),a            ;11 cycles
-    ;Wait 17 cycles:
-    push af              ;10 cycles
-    ld a,0               ;7 cycles
-    ;Stop waiting.
-    djnz BitLoop         ;13/8 cycles
+    ld (OP1),hl ;Save HL because AppOnErr destroys it and messes with the stack
+    AppOnErr Ax3_Link_Err
+    ld hl,(OP1) ;Restore HL
+    ld a,15h
+    ld de,513
+    dec hl
+    ld a,(hl)
+    ld (OP1+2),a ;Save the byte we are overwriting
+    ld (hl),22h
+    bcall(_SendRAMCmd)
+    ld hl,(OP1)
+    dec hl
+    ld a,(OP1+2)
+    ld (hl),a ;Restore the byte that was overwritten
+    AppOffErr
+    ld hl,1 ;Return 1 for success
+    ret
+Ax3_Link_Err:
+    ld hl,(OP1)
+    dec hl
+    ld a,(OP1+2)
+    ld (hl),a ;Restore the byte that was overwritten
+    ld hl,0 ;Return zero for link failure
+    ret
 
-;Wait 27 cycles:
-    pop af                   ;10 cycles
-    push af                  ;10 cycles
-    ld a,0                   ;7 cycles
-;Stop waiting. Detect parity of C to send it out next.
-    ld a,c                   ;4 cycles
-    and c                    ;4 cycles
-    jp pe,ParityLow          ;10 cycles
-    ld a,0                   ;7 cycles
-    jr ParityOutput          ;12 cycles
-ParityLow:
-    ld a,1               ;7 cycles
-    jr ParityOutput      ;12 cycles
-ParityOutput:
-    out (0),a            ;11 cycles
-;TODO: Wait 75 cycles, then output stop bit (high)
-
-    pop af
-    pop af
-    ei
 Ax3_End:
+
+.dw Ax4_End
+.db AXM_ALL
+.dw $D0BB ;stdDev()
+.db AXM_SUB|AXM_RMOD
+.db AXM_1ARG
+.org 0
+;******************************************
+;SendChannels(ptr)r
+;Sets channels 0-255
+;ptr: pointer to 256 channels to send
+;NOTE: Destroys the byte immediately before the pointer!
+;******************************************
+    ld (OP1),hl ;Save HL because AppOnErr destroys it and messes with the stack
+    AppOnErr Ax4_Link_Err
+    ld hl,(OP1) ;Restore HL
+    ld a,15h
+    ld de,257
+    dec hl
+    ld a,(hl)
+    ld (OP1+2),a ;Save the byte we are overwriting
+    ld (hl),22h
+    bcall(_SendRAMCmd)
+    ld hl,(OP1)
+    dec hl
+    ld a,(OP1+2)
+    ld (hl),a ;Restore the byte that was overwritten
+    AppOffErr
+    ld hl,1 ;Return 1 for success
+    ret
+Ax4_Link_Err:
+    ld hl,(OP1)
+    dec hl
+    ld a,(OP1+2)
+    ld (hl),a ;Restore the byte that was overwritten
+    ld hl,0 ;Return zero for link failure
+    ret
+Ax4_End:
+
+.dw Ax5_End
+.db AXM_ALL
+.dw $D0BB ;stdDev()
+.db AXM_SUB|AXM_RRMOD
+.db AXM_1ARG
+.org 0
+;******************************************
+;SendChannels(ptr)rr
+;Sets channels 256-511
+;ptr: pointer to 256 channels to send
+;NOTE: Destroys the byte immediately before the pointer!
+;******************************************
+    ld (OP1),hl ;Save HL because AppOnErr destroys it and messes with the stack
+    AppOnErr Ax5_Link_Err
+    ld hl,(OP1) ;Restore HL
+    ld a,15h
+    ld de,257
+    dec hl
+    ld a,(hl)
+    ld (OP1+2),a ;Save the byte we are overwriting
+    ld (hl),22h
+    bcall(_SendRAMCmd)
+    ld hl,(OP1)
+    dec hl
+    ld a,(OP1+2)
+    ld (hl),a ;Restore the byte that was overwritten
+    AppOffErr
+    ld hl,1 ;Return 1 for success
+    ret
+Ax5_Link_Err:
+    ld hl,(OP1)
+    dec hl
+    ld a,(OP1+2)
+    ld (hl),a ;Restore the byte that was overwritten
+    ld hl,0 ;Return zero for link failure
+    ret
+Ax5_End:
+
+.dw Ax6_End
+.db AXM_ALL
+.dw $D0BB ;stdDev()
+.db AXM_SUB
+.db AXM_1ARG
+.org 0
+;******************************************
+;GetChannels(ptr)
+;Gets all 512 channels
+;ptr: pointer to store 512 channels at
+;NOTE: Destroys the byte immediately before the pointer!
+;******************************************
+    ld (OP1),hl ;Save HL because AppOnErr destroys it and messes with the stack
+    AppOnErr Ax6_Link_Err
+    ld a,15h
+    ld de,1
+    ld hl,OP1+1
+    ld (hl),42h
+    bcall(_SendRAMCmd) ;Send the request
+    
+    ld bc,513
+    ld de,(OP1)
+    dec de
+    ld a,(de)
+    ld (OP1+2),a ;Save the byte we are overwriting
+    bcall(_GetDataPacket)
+    
+    ld de,(OP1+2)
+    ld (de),a ;Restore the byte that was overwritten
+    AppOffErr
+    ld hl,1 ;Return 1 for success
+    ret
+Ax6_Link_Err:
+    ld hl,(OP1)
+    dec hl
+    ld (hl),OP1+2 ;Restore the byte that was overwritten
+    ld hl,0 ;Return zero for link failure
+    ret
+Ax6_End:
+
 
 .dw AXM_END
 
-.db $8C,$05,9,"SetupDMX("
-.db $C4,$03,7,"StopDMX"
+.db $8C,$05,8,"SetupDMX"
+.db $C4,$03,11,"ShutDownDMX"
+.db $C4,$03,13,"SendChannels("
 
 .end

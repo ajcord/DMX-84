@@ -1,0 +1,28 @@
+Using Axe with SendVariable:
+(Decimal) 115,165,13,0,2,2,6,65,66,67,0,0,33,21,128,0,0,134,1,
+73,A5,D,0,02,02,06,41,42,43,0,0,21,15,80,0,0,86,1,
+
+Using Basic (send(A)):
+Received packet: 
+82,C9,B,0,9,0,0,41,0,0,0,0,0,0,0,4A,0,0,0,
+Command was RTS.
+Received packet.
+Packet was ACK.
+Received packet: 
+82,15,9,0,0,8C,12,34,56,78,90,12,30,72,2,
+Received checksum: 272
+Expecting checksum: 272
+Received packet (probably EOT)
+Variable received:
+0,8C,12,34,56,78,90,12,30,
+Time elapsed (ms): 173
+
+
+Using Axe with SendVarCmd:
+(Decimal) 130,54,1,0,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,
+82,36,1,0,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,
+
+Using Axe with SendHeader & SendVarCmd:
+Received packet: 
+73,C9,D,0,B,0,A8,41,42,43,0,0,1E,0,21,0,80,38,2,
+Command was RTS.

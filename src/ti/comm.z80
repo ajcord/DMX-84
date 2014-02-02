@@ -1,0 +1,116 @@
+.nolist
+#include "ti83plus.inc"
+#include "Axe.inc"
+#include "TokenHook.inc"
+.list
+
+#define B_CALL(xxxx) rst 28h \ .dw xxxx
+
+tok_Load        =$1263
+tok_Next        =$1363
+tok_Print       =$3763
+tok_New         =$1763
+tok_Delete      =$2563
+
+  .dw AXM_HEADER
+
+  .dw Ax1_End
+  .db AXM_ALL
+  .dw tok_Load		;Load()
+  .db AXM_SUB
+  .db AXM_2ARG
+  .org 0
+  ;SendPacket(buffer, length)
+
+  pop bc ;Save the return address
+  pop de ;Get the buffer address
+  push bc ;Put the return address back
+  push de ;Save the buffer address since we will modify DE to calculate the checksum
+  push hl ;Also save the length of the buffer
+  
+  ld b,l ;Get the number of bytes to add in B
+  ld hl,0 ;Zero the checksum accumulator HL
+CalcChecksum:
+  ld a,(de) ;Get the next byte in the buffer
+  ld c,a ;Move it to C
+  add hl,bc ;Add C to the checksum. Unfortunately, this also adds B, which is needed as the loop counter.
+  ld a,h ;Load the high byte of the checksum
+  sub b ;Subtract the value of the loop counter
+  ld h,a ;Put the modified high byte back into HL
+  inc de ;Move to the next byte in the buffer
+  djnz CalcChecksum ;Continue iterating until we reach the end of the buffer
+  
+  ;Put the checksum at the end of the buffer plus two
+  ld a,l
+  ld (de),a
+  inc de
+  ld a,h
+  ld (de),a
+  
+  pop de ;Get the length of the buffer
+  pop hl ;Get the old buffer address back
+  ld a,0x15 ;The command to send (always bulk data)
+  
+  B_CALL(_SendRAMCmd)
+
+Ax1_End:
+
+
+
+  .dw Ax2_End
+  .db AXM_ALL
+  .dw tok_Load		;Load()
+  .db AXM_INLINE
+  .db AXM_2ARG
+  .org 0
+  ;GetPacket(buffer, length)
+  
+  ld c,l ;Move the length into BC
+  ld b,h
+  pop de ;Get the buffer address
+  
+  B_CALL(_GetDataPacket)
+  
+Ax2_End:
+
+
+
+  .dw Ax3_End
+  .db AXM_ALL
+  .dw tok_Load		;Load()
+  .db AXM_INLINE
+  .db AXM_1ARG
+  .org 0
+  ;SendCmd(command)
+  ;Sends a 4-byte packet with the given command
+  
+  ld h,l ;Move the command into H
+  B_CALL(_Send4BytePacket)
+  
+Ax3_End:
+
+
+
+  .dw Ax4_End
+  .db AXM_ALL
+  .dw tok_Load		;Load()
+  .db AXM_INLINE
+  .db AXM_0ARG
+  .org 0
+  ;CheckReady()
+  ;Sends a 4-byte packet with the given command
+  
+  ld h,l ;Move the command into H
+  B_CALL(_Send4BytePacket)
+  
+Ax4_End:
+
+
+
+  .dw AXM_END
+
+  .db $38,$03,11,"SendPacket("
+  .db $3A,$03,10,"GetPacket("
+  .db $82,$03,8,"SendCmd("
+
+.end

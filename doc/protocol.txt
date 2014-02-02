@@ -1,6 +1,6 @@
 Calculator-side:
--Use standard TI link routine? (9600 baud)
-  -No, that protocol is completely weird. TODO: find/write a standard serial implementation at 9600 baud.
+*DATAlink packets are wrapped as TI bulk data packets (command byte 15h)
+*Machine ID is 23h (PC sending TI-83+/84+ data)
 
 Commands:
 First byte is the command. Parameters come next for commands that require additional data.
@@ -8,25 +8,26 @@ First byte is the command. Parameters come next for commands that require additi
 01h: heartbeat. Polls the transmitter, which responds with FFh. Exactly the same as no-op, except it doesn't allow dangerous commands to execute.
 10h and 11h: single channel packet. Next byte is LSB of channel number, third byte is channel value.
 20h: set 256 channels at once. Next 256 bytes are channel values for channels 0-255.
-21h: set 256 channels at once. Same format as above, but for channels 256-512.
-22h: set multiple channels at once, starting from zero. Byte 1: length of data. Remaining bytes are channel data for channels 0 to Byte1.
-23h: set all channels to the same value. Next byte is channel value.
-24h: increase all channels by a value. Next byte is change value.
-25h: decrease all channels by a value. Next byte is change value.
+21h: set 256 channels at once. Same format as above, but for channels 256-511.
+22h: set 512 channels at once (bulk data transfer, as above).
+23h: set multiple channels at once, starting from zero. Byte 1: length of data. Remaining bytes are channel data for channels 0 to Byte1.
+24h: set all channels to the same value. Next byte is channel value.
+25h: increase all channels by a value. Next byte is change value.
+26h: decrease all channels by a value. Next byte is change value.
 28h: start digital blackout (channel values stay in transmitter memory, but it broadcasts a blackout)
 29h: end digital blackout (start transmitting stored DMX data again)
-30h: copy channel data from 256-512 to 0-255
-31h: copy channel data from 0-255 to 256-512
-32h: exchange channel data between 0-255 and 256-512
-33h: exchange channel data between 2 ranges. Byte 1: first channel (0-255). Byte 2: second channel (256-512). Byte 3: number of channels to copy
+30h: copy channel data from 256-511 to 0-255
+31h: copy channel data from 0-255 to 256-511
+32h: exchange channel data between 0-255 and 256-511
+33h: exchange channel data between 2 ranges. Byte 1: first channel (0-255). Byte 2: second channel (256-511). Byte 3: number of channels to copy
 40h and 41h: request stored channel value for specific channel. Same format as 10h and 11h.
 42h: request data from all 512 channels at once.
 50h-DFh: reserved for future use
 E0h: start transmitting DMX
 E1h: stop transmitting DMX
-E2h and E3h: set number of channels to broadcast (E2 for 0-255, E3 for 256-512). You can still set channels that aren't being broadcast (as scratch memory, for example - if broadcasting 256 channels, then channels 256-512 could be a second cue or a buffer).
+E2h and E3h: set number of channels to broadcast (E2 for 0-255, E3 for 256-511). You can still set channels that aren't being broadcast (as scratch memory, for example - if broadcasting 256 channels, then channels 256-511 could be a second cue or a buffer. Remember that 32h can be used to swap scenes in this manner).
 F0h: start shutdown sequence - only works immediately after no-op as a safety measure
-     -once the transmitter replies with FFh, wait a few milliseconds and then it's safe to cut power to USB
+     -once the transmitter replies with FFh and then EOT, it goes into sleep mode until one of the link lines goes low again
 F1h: trigger soft reset - only works if the previous command was no-op
 F8h: request current status of transmitter
 F9h: request last error code (may not be current)
@@ -44,12 +45,14 @@ Error codes:
 FFh: unknown error
 
 Status codes:
-00h: initializing
-01h: OK
-02h: digital blackout enabled
-03h: DMX disabled
+00h: OK
+01h: digital blackout enabled
+02h: DMX disabled
+03h: protection is disabled
+80h: heartbeat
+81h: received no-op
 FEh: getting ready to power down
 FFh: ready for power down any moment
 
 Notes:
--Protected commands must be received less than 1 second after the preceding no-op command.
+-Protected commands must be received within 1 second after the preceding no-op command.
