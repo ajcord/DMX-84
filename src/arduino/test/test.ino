@@ -5,9 +5,9 @@ static int par_put(byte *data, unsigned long len);
 static int par_get(byte *data, unsigned long len);
 word calculateChecksum(byte *data, word datalength);
 
-const unsigned long autoShutDown = 10000; //Number of milliseconds before shutting down (6 hours)
+const unsigned long autoShutDown = 21600000; //Number of milliseconds before shutting down (6 hours)
 #define MACHINE_ID 0x23
-#define LED_PIN 13
+#define LED_PIN 9
 
 byte ACK[] = {MACHINE_ID, 0x56, 0, 0}; //Acknowledge
 byte NAK[] = {MACHINE_ID, 0x36, 1, 0, 1, 1, 0}; //Skip/Exit
@@ -134,8 +134,8 @@ int par_get_wait(byte *data, unsigned long len) {
   lastCmdReceived = millis();
 }
 
-#define TIring 8
-#define TItip 9
+#define TIring 4
+#define TItip 6
 #define TIwhite TIring
 #define TIred TItip
 #define ERR_READ_TIMEOUT 1000
