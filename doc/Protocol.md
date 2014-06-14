@@ -13,6 +13,7 @@ send commands, update channel data, etc. It is designed with maximum
 transfer speed and data efficiency in mind to minimize the drawbacks
 of limited processing power and memory space.
 
+
 Layers
 ------
 
@@ -62,6 +63,41 @@ commands for 1 second.
 
 Layers above the session layer are not in the scope of the
 DATA Project protocol.
+
+
+Implementation
+--------------
+
+### External packet structure
+
+Packets are wrapped by the TI Link Protocol, documented in the
+[TI Link Guide](http://merthsoft.com/linkguide/ti83+/packet.html).
+Packets are generally sent as bulk data transfers, command ID 0x15,
+with the exception of the request to send, acknowledge,
+negative acknowledge, and error packets.
+
+### Internal packet structure
+
+Inside the wrapper packet, if the wrapper is a bulk data packet, then
+an internal packet exists and contains at least one command byte,
+followed by data if specified by the command. There are three types
+of internal packets: single command packets, fixed width packets,
+and variable width packets. Single command packets contain a single
+byte: the command byte. Fixed width packets contain a single command
+byte and a fixed number of data bytes that must all be present.
+Variable width packets contain a single command byte, one or more
+length bytes, and a number of data bytes specified by the length.
+
+### Command bytes
+
+Command | Name | Description | Following Data
+--------|------|-------------|---------------
+`0x00` | No-op | Polls the transmitter, which should respond with `0xFF`, and enables restricted commands. | None
+`0x01` | Heartbeat | Polls the transmitter, which responds with `0xFF`, but doesn't enable restricted commands. | None
+`0x10`, `0x11` | Set single channel | Sets a single channel. Last bit of command denotes upper bit of channel number. | Next byte is LSB of channel number. Third byte is new channel value.
+`0x20`, `0x21` | Set 256 channels | Sets 256 channels at once. | Next 256 bytes are channel values. Sets channels 0-255 if command was `0x20` or 256-511 if command was `0x21`.
+`0x22` | Set 512 channels | Sets 512 channels at once. | Next 512 bytes are channel values.
+
 
 
 
