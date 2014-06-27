@@ -16,13 +16,21 @@
  *   alterations commented as // --> 
  */
 
+/**
+ * Some other alterations by Alex Cordonnier (ajcord)
+ *
+ *    * Fixed header includes for Arduino 1.0
+ *    * Added support for digital blackout
+ *    * Made dmxBuffer available externally
+ *
+ *    Alterations commented as // (ajcord)
+ */
+
 
 #include <avr/io.h>
 #include <avr/interrupt.h>
 #include <util/delay.h>
-#include "pins_arduino.h"
-
-#include "wiring.h"
+#include "Arduino.h" // (ajcord) Make it work with Arduino 1.0
 #include "DmxSimple.h"
 
 /** dmxBuffer contains a software copy of all the DMX channels.
@@ -36,6 +44,8 @@ static volatile uint8_t *dmxPort;
 static uint8_t dmxBit = 0;
 static uint8_t dmxPin = 3; // Defaults to output on pin 3 to support Tinker.it! DMX shield
 
+static bool digitalBlackoutEnabled = false; // (ajcord) Whether digital blackout is enabled or not
+
 void dmxBegin();
 void dmxEnd();
 void dmxSendByte(volatile uint8_t);
@@ -43,6 +53,8 @@ uint8_t dmxWrite(int,uint8_t);
 void dmxMaxChannel(int);
 uint8_t dmxModulate(int, int);
 uint8_t dmxGetValue(int);
+void dmxStartDigitalBlackout();
+void dmxStopDigitalBlackout();
 
 /* TIMER2 has a different register mapping on the ATmega8.
  * The modern chips (168, 328P, 1280) use identical mappings.
@@ -191,7 +203,7 @@ ISR(TIMER2_OVF_vect,ISR_NOBLOCK) {
       // Now send a channel which takes 11 bit periods
       if (bitsLeft < 11) break;
       bitsLeft-=11;
-      dmxSendByte(dmxBuffer[dmxState-1]);
+      dmxSendByte(!digitalBlackoutEnabled ? dmxBuffer[dmxState-1] : 0); // (ajcord) Added digital blackout conditional
     }
     // Successfully completed that stage - move state machine forward
     dmxState++;
@@ -247,6 +259,16 @@ uint8_t dmxGetValue(int channel)
     return 0;
 }
 
+// (ajcord) New function
+void dmxStartDigitalBlackout() {
+  digitalBlackoutEnabled = true;
+}
+
+// (ajcord) New function
+void dmxStopDigitalBlackout() {
+  digitalBlackoutEnabled = false;
+}
+
 /* C++ wrapper */
 
 
@@ -291,6 +313,16 @@ uint8_t DmxSimpleClass::modulate(int channel, int offset)
 uint8_t DmxSimpleClass::getValue(int channel)
 {
   return dmxGetValue(channel);
+}
+
+// (ajcord) New function
+void DmxSimpleClass::startDigitalBlackout() {
+  dmxStartDigitalBlackout();
+}
+
+// (ajcord) New function
+void DmxSimpleClass::stopDigitalBlackout() {
+  dmxStopDigitalBlackout();
 }
 
 DmxSimpleClass DmxSimple;
