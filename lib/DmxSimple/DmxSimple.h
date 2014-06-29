@@ -49,6 +49,6 @@ class DmxSimpleClass
 };
 extern DmxSimpleClass DmxSimple;
 
-extern volatile uint8_t dmxBuffer[DMX_SIZE]; // (ajcord) Moved here so it is available to other files. Defined in firmware.ino
+extern volatile uint8_t dmxBuffer[DMX_SIZE]; // (ajcord) Moved here so it is available to other files.
 
 #endif
