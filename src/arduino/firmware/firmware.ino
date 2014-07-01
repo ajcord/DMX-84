@@ -1,13 +1,13 @@
 /**
  * The DATA Project
- * Arduino firmware v0.3
+ * Arduino firmware v0.3.1
  *
  * By Alex Cordonnier (ajcord)
  *
  * This file contains the code that communicates with the calculator,
  * processes received commands, and generally manages the Arduino.
  *
- * Last modified June 28, 2014
+ * Last modified June 30, 2014
  */
 
 /******************************************************************************
@@ -141,13 +141,15 @@ struct { //Input buffer from calculator. Contains one packet plus metadata.
 */
 uint8_t cmd = 0; //Stores the last command received
 uint32_t lastCmdReceived = 0; //Stores the time the last command was received
-uint32_t noOpReceived = 0; //Stores the time the last no-op was received
+uint32_t enteredRestrictedMode = 0; //Stores the time that restricted mode was entered
 const uint8_t ACK[] = {MACHINE_ID, 0x56, 0, 0}; //Acknowledge
 const uint8_t NAK[] = {MACHINE_ID, 0x36, 1, 0, 1, 1, 0}; //Skip/Exit
-const uint8_t CTS[] = {MACHINE_ID, 0x09, 0, 0}; //Clear to send
+//const uint8_t CTS[] = {MACHINE_ID, 0x09, 0, 0}; //Clear to send
 const uint8_t ERR[] = {MACHINE_ID, 0x5A, 0, 0}; //Checksum error
+
+//Buffers for input & output
 uint8_t packetHead[HEADER_LENGTH] = {0};
-uint8_t packetData[PACKET_DATA_LENGTH] = {0}; //Input buffer for packet data from calculator, minus the header and the checksum
+uint8_t packetData[PACKET_DATA_LENGTH] = {0};
 uint8_t packetChecksum[CHECKSUM_LENGTH] = {0};
 
 //Flag variables
@@ -190,8 +192,8 @@ void loop() {
   switch (cmd) {
     case 0x00: {
       //Heartbeat
-      uint8_t packet[] = {0}; //Contents will not be sent, but reply requires packet data
-      reply(packet, 0); //Just echo the request to acknowledge it
+      uint8_t packet[] = {0}; //Will not be sent
+      reply(packet, 0); //Echo the command to acknowledge it
       Serial.println(F("Heartbeat"));
       break;
     }
@@ -200,9 +202,9 @@ void loop() {
       //Enable restricted mode
       //Allows protected commands to be executed for one second.
       SET_STATUS(RESTRICTED_MODE_STATUS);
-      noOpReceived = millis();
-      uint8_t packet[] = {0}; //Contents will not be sent, but reply requires packet data
-      reply(packet, 0); //Just echo the no-op to acknowledge it
+      enteredRestrictedMode = millis();
+      uint8_t packet[] = {0}; //Will not be sent
+      reply(packet, 0); //Echo the command to acknowledge it
       Serial.println(F("/!\\ Now in restricted mode"));
       break;
     }
@@ -210,7 +212,7 @@ void loop() {
     case 0x10:
     case 0x11: {
       //Sets a single channel
-      uint16_t channel = (cmd & 1)*256 + packetData[1];
+      uint16_t channel = packetData[1] + (cmd & 1) << 8;
       uint16_t newValue = packetData[2];
       dmxBuffer[channel] = newValue;
       
@@ -221,38 +223,121 @@ void loop() {
       break;
     }
     
+    case 0x12:
+    case 0x13: {
+      //Increments a single channel by 1
+      uint16_t channel = packetData[1] + (cmd & 1) << 8;
+      if (dmxBuffer[channel] < 0xFF) {
+        dmxBuffer[channel]++;
+      }
+            
+      Serial.print(F("Incremented channel "));
+      Serial.println(channel);
+      break;
+    }
+    
+    case 0x14:
+    case 0x15: {
+      //Decrements a single channel by 1
+      uint16_t channel = packetData[1] + (cmd & 1) << 8;
+      if (dmxBuffer[channel] > 0x00) {
+        dmxBuffer[channel]--;
+      }
+      
+      Serial.print(F("Decremented channel "));
+      Serial.println(channel);
+      break;
+    }
+    
+    case 0x16:
+    case 0x17: {
+      //Increments a single channel by a number
+      uint16_t channel = packetData[1] + (cmd & 1) << 8;
+      uint8_t incrementAmount = packetData[2];
+      if (dmxBuffer[channel] + incrementAmount < 0xFF) { //Prevent overflow
+        dmxBuffer[channel] += incrementAmount;
+      }
+            
+      Serial.print(F("Incremented channel "));
+      Serial.print(channel);
+      Serial.print(F(" by "));
+      Serial.println(incrementAmount);
+      break;
+    }
+    
+    case 0x18:
+    case 0x19: {
+      //Decrements a single channel by a number
+      uint16_t channel = packetData[1] + (cmd & 1) << 8;
+      uint8_t decrementAmount = packetData[2];
+      if (decrementAmount <= dmxBuffer[channel]) { //Prevent underflow
+        dmxBuffer[channel] -= decrementAmount;
+      } else {
+        dmxBuffer[channel] = 0;
+      }
+            
+      Serial.print(F("Decremented channel "));
+      Serial.print(channel);
+      Serial.print(F(" by "));
+      Serial.println(decrementAmount);
+      break;
+    }
+    
     case 0x20:
     case 0x21: {
       //Sets 256 channels at once
       for (uint16_t i = 0; i < 256; i++) {
-        dmxBuffer[(cmd & 1)*256 + i] = packetData[i + 1];
+        dmxBuffer[i + (cmd & 1) << 8] = packetData[i + 1];
       }
       Serial.println(F("Updated 256 channels"));
       break;
     }
     
-    case 0x22: {
-      //Sets 512 channels at once
-      for (uint16_t i = 0; i < 512; i++) {
-        dmxBuffer[i] = packetData[i + 1];
-      }
-      Serial.println(F("Updated 512 channels"));
-      break;
-    }
-    
+    case 0x22:
     case 0x23: {
       //Sets a block of channels at once
-      uint16_t length = packetData[1]; //Stores the number of channels to set, starting from 0
-      for (uint16_t i = 0; i < length; i++) {
+      uint16_t startChannel = packetData[1] + (packetData[0] & 1) << 8; //The first channel of the block
+      uint16_t length = packetData[2]; //The number of channels to set
+      length = max(length, MAX_DMX - startChannel); //Don't go above channel 512
+      for (uint16_t i = startChannel; i < length; i++) {
         dmxBuffer[i] = packetData[i + 2];
       }
-      Serial.print(F("Updated "));
-      Serial.print(length);
-      Serial.println(F(" channels"));
+      Serial.print(F("Updated channels "));
+      Serial.print(startChannel);
+      Serial.print(F("-"));
+      Serial.println(startChannel + length);
       break;
     }
     
     case 0x24: {
+      //Increments all channels by a value
+      uint8_t incrementAmount = packetData[1];
+      for (uint16_t i = 0; i < 512; i++) {
+        if (dmxBuffer[i] + incrementAmount < 0xFF) { //Prevent overflow
+          dmxBuffer[i] += incrementAmount;
+        }
+      }
+      Serial.print(F("Incremented all channels by "));
+      Serial.println(incrementAmount);
+      break;
+    }
+    
+    case 0x25: {
+      //Decrements all channels by a value
+      uint8_t decrementAmount = packetData[1];
+      for (uint16_t i = 0; i < 512; i++) {
+        if (dmxBuffer[i] >= decrementAmount) { //Prevent underflow
+          dmxBuffer[i] -= decrementAmount;
+        } else {
+          dmxBuffer[i] = 0;
+        }
+      }
+      Serial.print(F("Decremented all channels by "));
+      Serial.println(decrementAmount);
+      break;
+    }
+    
+    case 0x26: {
       //Sets all channels to the same value
       uint8_t newValue = packetData[1];
       for (uint16_t i = 0; i < 512; i++) {
@@ -263,51 +348,12 @@ void loop() {
       break;
     }
     
-    case 0x25: {
-      //Increments all channels by a value
-      uint8_t incrementAmount = packetData[1];
+    case 0x27: {
+      //Sets 512 channels at once
       for (uint16_t i = 0; i < 512; i++) {
-        if (0xFF - incrementAmount >= dmxBuffer[i]) { //Prevent an overflow
-          dmxBuffer[i] += incrementAmount;
-        } else {
-          dmxBuffer[i] = 0xFF; //If the value is too large, set it to FF
-        }
+        dmxBuffer[i] = packetData[i + 1];
       }
-      Serial.print(F("Incremented all channels by "));
-      Serial.println(incrementAmount);
-      break;
-    }
-    
-    case 0x26: {
-      //Decrements all channels by a value
-      uint8_t decrementAmount = packetData[1];
-      for (uint16_t i = 0; i < 512; i++) {
-        if (dmxBuffer[i] >= decrementAmount) { //Prevent an underflow
-          dmxBuffer[i] -= decrementAmount;
-        } else {
-          dmxBuffer[i] = 0; //If the value is too small, set it to 0
-        }
-      }
-      Serial.print(F("Decremented all channels by "));
-      Serial.println(decrementAmount);
-      break;
-    }
-    
-    case 0x28: {
-      //Start a digital blackout
-      DmxSimple.startDigitalBlackout();
-      SET_STATUS(DIGITAL_BLACKOUT_ENABLED_STATUS);
-      
-      Serial.println(F("Started digital blackout"));
-      break;
-    }
-    
-    case 0x29: {
-      //Stop a digital blackout
-      DmxSimple.stopDigitalBlackout();
-      CLEAR_STATUS(DIGITAL_BLACKOUT_ENABLED_STATUS);
-      
-      Serial.println(F("Stopped digital blackout"));
+      Serial.println(F("Updated 512 channels"));
       break;
     }
     
@@ -349,13 +395,14 @@ void loop() {
     case 0x40:
     case 0x41: {
       //Reply with channel value for specific channel
-      uint8_t packet[] = {dmxBuffer[(cmd & 1)*256 + packetData[1]]};
+      uint16_t channel = packetData[1] + (cmd & 1) << 8;
+      uint8_t packet[] = {dmxBuffer[channel]};
+      reply(packet, 1);
       
       Serial.print(F("Channel "));
-      Serial.print((cmd & 1)*256 + packetData[1]);
+      Serial.print(channel);
       Serial.print(F(" is at "));
-      Serial.println(dmxBuffer[(cmd & 1)*256 + packetData[1]]);
-      reply(packet, 1);
+      Serial.println(dmxBuffer[channel]);
       break;
     }
     
@@ -401,10 +448,29 @@ void loop() {
     case 0xE2:
     case 0xE3: {
       //Set max channels to transmit
-      setMaxChannel((cmd & 1)*256 + packetData[1]); //Set the max number of channels
+      uint16_t newMax = packetData[1] + (cmd & 1) << 8;
+      setMaxChannel(newMax); //Set the max number of channels
       
       Serial.print(F("Max channels now "));
-      Serial.println((cmd & 1)*256 + packetData[1]);
+      Serial.println(newMax);
+      break;
+    }
+    
+    case 0xE4: {
+      //Start a digital blackout
+      DmxSimple.startDigitalBlackout();
+      SET_STATUS(DIGITAL_BLACKOUT_ENABLED_STATUS);
+      
+      Serial.println(F("Started digital blackout"));
+      break;
+    }
+    
+    case 0xE5: {
+      //Stop a digital blackout
+      DmxSimple.stopDigitalBlackout();
+      CLEAR_STATUS(DIGITAL_BLACKOUT_ENABLED_STATUS);
+      
+      Serial.println(F("Stopped digital blackout"));
       break;
     }
     
@@ -513,7 +579,7 @@ void loop() {
       reply(packet, 4);
       
       Serial.print(F("Current temperature: "));
-      Serial.print(temp/1000.0);
+      Serial.print(temp);
       Serial.println(F(" ºC"));
       break;
     }
@@ -532,6 +598,7 @@ void loop() {
       Serial.print(F("Uptime: "));
       Serial.print(uptime);
       Serial.println(F(" seconds"));
+      break;
     }
     
     default: {
@@ -614,7 +681,7 @@ void initShutDown(bool reset) {
     asm volatile ("jmp 0"); //Reset the software (i.e. reboot)
   }
   power_all_disable();
-  set_sleep_mode(<mode>);
+  set_sleep_mode(2);
   sleep_mode();
   while (true) {
     //Sit-n-spin. Shouldn't get here since there is no way to get out of sleep.
@@ -672,7 +739,7 @@ void waitForPacket(void) {
     }
     Serial.println();
     
-    uint16_t length = packetHead[2] + packetHead[3]*256;
+    uint16_t length = packetHead[2] + packetHead[3] << 8;
     
     if(packetHead[1] == CMD_RDY) {//Ready check - only required in the initial handshake
       //Serial.println(F("Packet was ready check"));
@@ -682,6 +749,7 @@ void waitForPacket(void) {
     } else if (TEST_STATUS(RECEIVED_HANDSHAKE_STATUS) &&
         packetHead[1] == CMD_DATA) { //Data packet - used for everything except the handshake
       if (length != 0) {
+        Serial.println(F("Receiving data..."));
         receive(packetData, length);
         
         Serial.println(F("Received data:"));
@@ -695,12 +763,12 @@ void waitForPacket(void) {
         Serial.println();
         
         receive(packetChecksum, 2);
-        uint16_t receivedChksm = packetChecksum[0] + packetChecksum[1]*256;
-        //Serial.println(F("Received checksum:"));
-        //Serial.println(receivedChksm, HEX);
+        uint16_t receivedChksm = packetChecksum[0] + packetChecksum[1] << 8;
+        Serial.println(F("Received checksum:"));
+        Serial.println(receivedChksm, HEX);
         uint16_t calculatedChksm = checksum(packetData, length);
         if (calculatedChksm == receivedChksm) {
-          //Serial.println(F("Checksum is valid"));
+          Serial.println(F("Checksum is valid"));
           par_put(ACK, 4);
           Serial.println(F("Sent ACK"));
           //Serial.print(F("Time elapsed (ms): "));
@@ -708,8 +776,8 @@ void waitForPacket(void) {
           //Stop waiting and return
           keepWaiting = false;
         } else {
-          //Serial.print(F("ERROR: Expected checksum: "));
-          //Serial.println(calculatedChksm, HEX);
+          Serial.print(F("ERROR: Expected checksum: "));
+          Serial.println(calculatedChksm, HEX);
           par_put(ERR, 4);
           //Serial.println(F("Requested retransmission"));
         }
@@ -725,7 +793,7 @@ void waitForPacket(void) {
       }
       //Send a NAK to indicate the packet was ignored.
       par_put(NAK, 7);
-      //Serial.println(F("Sent NAK"));
+      Serial.println(F("Sent NAK"));
     }
   }
   CLEAR_STATUS(SENT_SHUT_DOWN_WARNING_STATUS);
@@ -740,7 +808,7 @@ void waitForPacket(void) {
  * Note: Retries until the transmission doesn't time out.
  * Also implements auto shutdown and clearing the restricted mode flag
  * since this is where the program spends a lot of its time waiting.
- * It probably spends more time in par_get, but I don't want to modify par_get's
+ * It spends more time in par_get, but I don't want to modify par_get's
  * functionality.
  */
 
@@ -765,8 +833,8 @@ void receive(uint8_t *data, uint16_t length) {
         ((millis() - lastCmdReceived) > AUTO_SHUT_DOWN_TIME)) {
       //It's been 1 minute since we sent a warning. Time to shut down.
       //Must enable restricted mode to shut down
+      Serial.println(F("Shutting down..."));
       SET_STATUS(RESTRICTED_MODE_STATUS);
-      //Serial.println(F("Shutting down..."));
       initShutDown();
     } else {
       //Do nothing
@@ -785,6 +853,7 @@ void receive(uint8_t *data, uint16_t length) {
  *
  * Note: The *data parameter must be volatile so it can reply directly with the
  * dmxBuffer if necessary.
+ * Note: Reuses packetHead, packetData, and packetChecksum to save RAM.
  */
 
 void reply(volatile uint8_t *data, uint16_t length) {
@@ -821,10 +890,10 @@ void reply(volatile uint8_t *data, uint16_t length) {
  */
 
 void resetLines() {
-   pinMode(TI_RING_PIN, INPUT);           // set pin to input
-   digitalWrite(TI_RING_PIN, HIGH);       // turn on pullup resistors
-   pinMode(TI_TIP_PIN, INPUT);            // set pin to input
-   digitalWrite(TI_TIP_PIN, HIGH);        // turn on pullup resistors
+  pinMode(TI_RING_PIN, INPUT);           // set pin to input
+  digitalWrite(TI_RING_PIN, HIGH);       // turn on pullup resistors
+  pinMode(TI_TIP_PIN, INPUT);            // set pin to input
+  digitalWrite(TI_TIP_PIN, HIGH);        // turn on pullup resistors
 }
 
 /**
@@ -838,54 +907,54 @@ void resetLines() {
  */
 
 static uint16_t par_put(const uint8_t *data, uint16_t length) {
-   uint8_t bit;
-   uint16_t j;
-   uint32_t previousMillis = 0;
-   uint8_t byte;
+  uint8_t bit;
+  uint16_t j;
+  uint32_t previousMillis = 0;
+  uint8_t byte;
 
-   for(j = 0; j < length; j++) {
-      byte = data[j];
-      for (bit = 0; bit < 8; bit++) {
-         previousMillis = 0;
-         while ((digitalRead(TI_RING_PIN) << 1 | digitalRead(TI_TIP_PIN)) != 0x03) {
-            if (previousMillis++ > TIMEOUT)
-               return ERR_WRITE_TIMEOUT + j + 100 * bit;
-         };
-         if (byte & 1) {
-            pinMode(TI_RING_PIN, OUTPUT);
-            digitalWrite(TI_RING_PIN, LOW);
-            previousMillis = 0;
-            while (digitalRead(TI_TIP_PIN) == HIGH) {
-               if (previousMillis++ > TIMEOUT)
-                  return ERR_WRITE_TIMEOUT + 10 + j + 100 * bit;
-            };
+  for(j = 0; j < length; j++) {
+    byte = data[j];
+    for (bit = 0; bit < 8; bit++) {
+      previousMillis = 0;
+      while ((digitalRead(TI_RING_PIN) << 1 | digitalRead(TI_TIP_PIN)) != 0x03) {
+        if (previousMillis++ > TIMEOUT)
+          return ERR_WRITE_TIMEOUT + j + 100 * bit;
+      };
+      if (byte & 1) {
+        pinMode(TI_RING_PIN, OUTPUT);
+        digitalWrite(TI_RING_PIN, LOW);
+        previousMillis = 0;
+        while (digitalRead(TI_TIP_PIN) == HIGH) {
+          if (previousMillis++ > TIMEOUT)
+            return ERR_WRITE_TIMEOUT + 10 + j + 100 * bit;
+        };
 
-            resetLines();
-            previousMillis = 0;
-            while (digitalRead(TI_TIP_PIN) == LOW) {
-               if (previousMillis++ > TIMEOUT)
-                  return ERR_WRITE_TIMEOUT + 20 + j + 100 * bit;
-            };
-         } else {
-            pinMode(TI_TIP_PIN, OUTPUT);
-            digitalWrite(TI_TIP_PIN, LOW);      //should already be set because of the pullup resistor register
-            previousMillis = 0;
-            while (digitalRead(TI_RING_PIN) == HIGH) {
-               if (previousMillis++ > TIMEOUT)
-                  return ERR_WRITE_TIMEOUT + 30 + j + 100 * bit;
-            };
+        resetLines();
+        previousMillis = 0;
+        while (digitalRead(TI_TIP_PIN) == LOW) {
+          if (previousMillis++ > TIMEOUT)
+            return ERR_WRITE_TIMEOUT + 20 + j + 100 * bit;
+        };
+      } else {
+        pinMode(TI_TIP_PIN, OUTPUT);
+        digitalWrite(TI_TIP_PIN, LOW); //should already be set because of the pullup resistor register
+        previousMillis = 0;
+        while (digitalRead(TI_RING_PIN) == HIGH) {
+          if (previousMillis++ > TIMEOUT)
+            return ERR_WRITE_TIMEOUT + 30 + j + 100 * bit;
+        };
 
-            resetLines();
-            previousMillis = 0;
-            while (digitalRead(TI_RING_PIN) == LOW) {
-               if (previousMillis++ > TIMEOUT)
-                  return ERR_WRITE_TIMEOUT + 40 + j + 100 * bit;
-            };
-         }
-         byte >>= 1;
+        resetLines();
+        previousMillis = 0;
+        while (digitalRead(TI_RING_PIN) == LOW) {
+          if (previousMillis++ > TIMEOUT)
+            return ERR_WRITE_TIMEOUT + 40 + j + 100 * bit;
+        };
       }
-   }
-   return 0;
+      byte >>= 1;
+    }
+  }
+  return 0;
 }
 
 /**
@@ -899,47 +968,47 @@ static uint16_t par_put(const uint8_t *data, uint16_t length) {
  */
 
 static uint16_t par_get(uint8_t *data, uint16_t length) {
-   uint8_t bit;
-   uint16_t j;
-   uint32_t previousMillis = 0;
+  uint8_t bit;
+  uint16_t j;
+  uint32_t previousMillis = 0;
 
-   for(j = 0; j < length; j++) {
-      uint8_t v, byteout = 0;
-      for (bit = 0; bit < 8; bit++) {
-         previousMillis = 0;
-         while ((v = (digitalRead(TI_RING_PIN) << 1 | digitalRead(TI_TIP_PIN))) == 0x03) {
-            if (previousMillis++ > GET_ENTER_TIMEOUT)
-               return ERR_READ_TIMEOUT + j + 100 * bit;
-         }
-         if (v == 0x01) {
-            byteout = (byteout >> 1) | 0x80;
-            pinMode(TI_TIP_PIN, OUTPUT);
-            digitalWrite(TI_TIP_PIN, LOW);      //should already be set because of the pullup resistor register
-            previousMillis = 0;
-            while (digitalRead(TI_RING_PIN) == LOW) {            //wait for the other one to go low
-               if (previousMillis++ > TIMEOUT)
-                  return ERR_READ_TIMEOUT + 10 + j + 100 * bit;
-            }
-            digitalWrite(TI_RING_PIN,HIGH);
-         } else {
-            byteout = (byteout >> 1) & 0x7F;
-            pinMode(TI_RING_PIN, OUTPUT);
-            digitalWrite(TI_RING_PIN, LOW);      //should already be set because of the pullup resistor register
-            previousMillis = 0;
-            while (digitalRead(TI_TIP_PIN) == LOW) {
-               if (previousMillis++ > TIMEOUT)
-                  return ERR_READ_TIMEOUT + 20 + j + 100 * bit;
-            }
-            digitalWrite(TI_TIP_PIN, HIGH);
-         }
-         pinMode(TI_RING_PIN, INPUT);           // set pin to input
-         digitalWrite(TI_RING_PIN, HIGH);       // turn on pullup resistors
-         pinMode(TI_TIP_PIN, INPUT);            // set pin to input
-         digitalWrite(TI_TIP_PIN, HIGH);        // turn on pullup resistors
+  for(j = 0; j < length; j++) {
+    uint8_t v, byteout = 0;
+    for (bit = 0; bit < 8; bit++) {
+      previousMillis = 0;
+      while ((v = (digitalRead(TI_RING_PIN) << 1 | digitalRead(TI_TIP_PIN))) == 0x03) {
+        if (previousMillis++ > GET_ENTER_TIMEOUT)
+          return ERR_READ_TIMEOUT + j + 100 * bit;
       }
-      data[j] = byteout;
-   }
-   return 0;
+      if (v == 0x01) {
+        byteout = (byteout >> 1) | 0x80;
+        pinMode(TI_TIP_PIN, OUTPUT);
+        digitalWrite(TI_TIP_PIN, LOW); //should already be set because of the pullup resistor register
+        previousMillis = 0;
+        while (digitalRead(TI_RING_PIN) == LOW) { //wait for the other one to go low
+          if (previousMillis++ > TIMEOUT)
+            return ERR_READ_TIMEOUT + 10 + j + 100 * bit;
+        }
+        digitalWrite(TI_RING_PIN,HIGH);
+      } else {
+        byteout = (byteout >> 1) & 0x7F;
+        pinMode(TI_RING_PIN, OUTPUT);
+        digitalWrite(TI_RING_PIN, LOW); //should already be set because of the pullup resistor register
+        previousMillis = 0;
+        while (digitalRead(TI_TIP_PIN) == LOW) {
+          if (previousMillis++ > TIMEOUT)
+            return ERR_READ_TIMEOUT + 20 + j + 100 * bit;
+        }
+        digitalWrite(TI_TIP_PIN, HIGH);
+      }
+      pinMode(TI_RING_PIN, INPUT); // set pin to input
+      digitalWrite(TI_RING_PIN, HIGH); // turn on pullup resistors
+      pinMode(TI_TIP_PIN, INPUT); // set pin to input
+      digitalWrite(TI_TIP_PIN, HIGH); // turn on pullup resistors
+    }
+    data[j] = byteout;
+  }
+  return 0;
 }
 
 /**
