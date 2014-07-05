@@ -579,14 +579,14 @@ void loop() {
       reply(packet, 4);
       
       Serial.print(F("Current temperature: "));
-      Serial.print(temp);
-      Serial.println(F(" ºC"));
+      Serial.print(temp/1000.0);
+      Serial.println(F(" C"));
       break;
     }
     
     case 0xFE: {
-      //Reply with uptime in seconds
-      uint32_t uptime = millis() / 1000;
+      //Reply with uptime in milliseconds
+      uint32_t uptime = millis();
       uint8_t packet[] = {
         (uptime & 0xFF),
         (uptime & 0xFF00) >> 8,
@@ -596,7 +596,7 @@ void loop() {
       reply(packet, 4);
       
       Serial.print(F("Uptime: "));
-      Serial.print(uptime);
+      Serial.print(uptime/1000);
       Serial.println(F(" seconds"));
       break;
     }
@@ -741,13 +741,14 @@ void waitForPacket(void) {
     
     uint16_t length = packetHead[2] | packetHead[3] << 8;
     
-    if(packetHead[1] == CMD_RDY) {//Ready check - only required in the initial handshake
+    if(packetHead[1] == CMD_RDY) {//Ready check - required once at startup
       //Serial.println(F("Packet was ready check"));
       SET_STATUS(RECEIVED_HANDSHAKE_STATUS);
       par_put(ACK, 4);
       //Serial.println(F("Sent ACK"));
     } else if (TEST_STATUS(RECEIVED_HANDSHAKE_STATUS) &&
-        packetHead[1] == CMD_DATA) { //Data packet - used for everything except the handshake
+        packetHead[1] == CMD_DATA) { //Data packet - everything after RDY
+      //Data packet should always contain data, but this prevents infinite loops
       if (length != 0) {
         receive(packetData, length);
         
@@ -858,8 +859,8 @@ void receive(uint8_t *data, uint16_t length) {
 void reply(volatile uint8_t *data, uint16_t length) {
   packetHead[0] = MACHINE_ID;
   packetHead[1] = CMD_DATA;
-  packetHead[2] = length & 0x00FF;
-  packetHead[3] = length >> 8;
+  packetHead[2] = (length + 1) & 0x00FF;
+  packetHead[3] = (length + 1) >> 8;
   packetData[0] = cmd;
   for (uint16_t i = 0; i < length; i++) {
     packetData[i + 1] = data[i];
@@ -867,12 +868,27 @@ void reply(volatile uint8_t *data, uint16_t length) {
   uint16_t chksm = checksum(packetData, length + 1);
   packetChecksum[0] = chksm & 0x00FF;
   packetChecksum[1] = chksm >> 8;
-  par_put(packetHead, 4);
-  par_put(packetData, length + 1);
-  par_put(packetChecksum, 2);
-  
-  //Receive the ACK
-  par_get(packetHead, 4);
+
+  /* These par_puts are in conditionals to prevent getting stuck receiving ACK
+   * if there was a transmit error.
+   */
+  uint16_t err = 0;
+  if (err = par_put(packetHead, 4)) {
+    Serial.print(F("Error sending head: "));
+    Serial.println(err);
+  } else if (err = par_put(packetData, length + 1)) {
+    Serial.print(F("Error sending data: "));
+    Serial.println(err);
+  } else if (err = par_put(packetChecksum, 2)) {
+    Serial.print(F("Error sending checksum: "));
+    Serial.println(err);
+  } else {
+    Serial.println(F("Sent reply"));
+
+    //Receive the ACK
+    receive(packetHead, 4);
+    Serial.println(F("Received ACK"));
+  }
 }
 
 /**
@@ -911,8 +927,12 @@ static uint16_t par_put(const uint8_t *data, uint16_t length) {
   uint32_t previousMillis = 0;
   uint8_t byte;
 
+  //Serial.print(F("Sending "));
   for(j = 0; j < length; j++) {
     byte = data[j];
+    //Serial.print(byte, HEX);
+    //Serial.print(F(" "));
+
     for (bit = 0; bit < 8; bit++) {
       previousMillis = 0;
       while ((digitalRead(TI_RING_PIN) << 1 | digitalRead(TI_TIP_PIN)) != 0x03) {
@@ -953,6 +973,7 @@ static uint16_t par_put(const uint8_t *data, uint16_t length) {
       byte >>= 1;
     }
   }
+  //Serial.println(F(" "));
   return 0;
 }
 
