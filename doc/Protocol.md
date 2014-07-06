@@ -1,12 +1,12 @@
-DATA Project Protocol
+dmx-84 Protocol
 =====================
 
-*Protocol version 0.1*
+*Protocol version 0.3*
 
 Overview
 --------
 
-The DATA Project uses a simple communication protocol wrapped in the
+dmx-84 uses a simple communication protocol wrapped in the
 TI graphing calculator two-wire link protocol. This communication
 protocol allows the calculator to communicate with the Arduino to
 send commands, update channel data, etc. It is designed with maximum
@@ -92,8 +92,8 @@ length bytes, and a number of data bytes specified by the length.
 
 Command | Name | Description | Following Data
 --------|------|-------------|---------------
-`0x00` | No-op | Polls the transmitter, which should respond with `0xFF`, and enables restricted commands. | None
-`0x01` | Heartbeat | Polls the transmitter, which responds with `0xFF`, but doesn't enable restricted commands. | None
+`0x00` | Heartbeat | Polls the transmitter, which responds with `0x00`, but doesn't enable restricted commands. | None
+`0x01` | Enable restricted mode | Polls the transmitter, which responds with `0x01`, and enables restricted commands. | None
 `0x10`, `0x11` | Set single channel | Sets a single channel. Last bit of command denotes upper bit of channel number. | Next byte is LSB of channel number. Third byte is new channel value.
 `0x20`, `0x21` | Set 256 channels | Sets 256 channels at once. | Next 256 bytes are channel values. Sets channels 0-255 if command was `0x20` or 256-511 if command was `0x21`.
 `0x22` | Set 512 channels | Sets 512 channels at once. | Next 512 bytes are channel values.
