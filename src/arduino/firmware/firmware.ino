@@ -1,13 +1,13 @@
 /**
  * The DATA Project
- * Arduino firmware v0.3.1
+ * Arduino firmware v0.3.3
  *
  * By Alex Cordonnier (ajcord)
  *
  * This file contains the code that communicates with the calculator,
  * processes received commands, and generally manages the Arduino.
  *
- * Last modified June 30, 2014
+ * Last modified July 6, 2014
  */
 
 /******************************************************************************
@@ -34,7 +34,11 @@
 
 //Calculator communication
 #define MACHINE_ID            0x23
+#define CMD_CTS               0x09
 #define CMD_DATA              0x15
+#define CMD_SKIP_EXIT         0x36
+#define CMD_ACK               0x56
+#define CMD_ERR               0x5A
 #define CMD_RDY               0x68
 #define CMD_EOT               0x92
 #define ERR_READ_TIMEOUT      1000
@@ -93,10 +97,10 @@
 //Version numbers
 #define PROTOCOL_VERSION_MAJOR          0
 #define PROTOCOL_VERSION_MINOR          3
-#define PROTOCOL_VERSION_PATCH          0
+#define PROTOCOL_VERSION_PATCH          1
 #define FIRMWARE_VERSION_MAJOR          0
 #define FIRMWARE_VERSION_MINOR          3
-#define FIRMWARE_VERSION_PATCH          1
+#define FIRMWARE_VERSION_PATCH          3
 
 //Compile-time options
 #define AUTO_SHUT_DOWN_ENABLED      1
@@ -139,13 +143,13 @@ struct { //Input buffer from calculator. Contains one packet plus metadata.
   uint8_t cmd; //The command byte from the packet data, not the header
 } packet;
 */
-uint8_t cmd = 0; //Stores the last command received
-uint32_t lastCmdReceived = 0; //Stores the time the last command was received
-uint32_t enteredRestrictedMode = 0; //Stores the time that restricted mode was entered
-const uint8_t ACK[] = {MACHINE_ID, 0x56, 0, 0}; //Acknowledge
-const uint8_t NAK[] = {MACHINE_ID, 0x36, 1, 0, 1, 1, 0}; //Skip/Exit
-//const uint8_t CTS[] = {MACHINE_ID, 0x09, 0, 0}; //Clear to send
-const uint8_t ERR[] = {MACHINE_ID, 0x5A, 0, 0}; //Checksum error
+uint8_t cmd = 0; //The last command received
+uint32_t lastCmdReceived = 0; //The time the last command was received
+uint32_t enteredRestrictedMode = 0; //The time that restricted mode was entered
+const uint8_t ACK[] = {MACHINE_ID, CMD_ACK, 0, 0}; //Acknowledge
+const uint8_t NAK[] = {MACHINE_ID, CMD_SKIP_EXIT, 1, 0, 1, 1, 0}; //Cancel Tx
+const uint8_t CTS[] = {MACHINE_ID, CMD_CTS, 0, 0}; //Clear to send
+const uint8_t ERR[] = {MACHINE_ID, CMD_ERR, 0, 0}; //Checksum error, retransmit
 
 //Buffers for input & output
 uint8_t packetHead[HEADER_LENGTH] = {0};
@@ -176,8 +180,10 @@ void setup() {
 
   //Start serial communication with the computer
   Serial.begin(115200);
-
   Serial.println(F("Ready"));
+
+  //Tell the calculator we're up and running
+  par_put(CTS, 4);
 }
 
 void loop() {
@@ -427,7 +433,7 @@ void loop() {
       break;
     }
     
-    /* Intermediate keywords reserved for future use */
+    /* Intermediate commands reserved for future use */
     
     case 0xE0: {
       //Stop transmitting DMX
@@ -475,13 +481,17 @@ void loop() {
     }
     
     case 0xF0: {
-      //Initiate safe shutdown sequence - only works directly after a no-op
+      //Initiate safe shutdown sequence - only works in restricted mode
+      uint8_t packet[] = {0};
+      reply(packet, 0);
       initShutDown();
       break;
     }
     
     case 0xF1: {
-      //Initiate soft reset - only works directly after a no-op
+      //Initiate soft reset - only works in restricted mode
+      uint8_t packet[] = {0};
+      reply(packet, 0);
       initShutDown(true);
       break;
     }
@@ -654,9 +664,9 @@ void stopTransmitDMX() {
 }
 
 /**
- * initShutDown - Shuts down the Arduino
+ * initShutDown - Shuts down or resets the Arduino
  * Parameter:
- *    bool reset: true to reset the firmware, false to hang (shutdown)
+ *    bool reset: true to reset the firmware, false to power down
  *
  * Note: Cannot return successfully, for obvious reasons.
  */
@@ -667,21 +677,31 @@ void initShutDown(bool reset) {
     Serial.println(F("Error: must be in restricted mode"));
     return;
   }
-  //Prepare to shut down
-  stopTransmitDMX();
 
-  uint8_t statusPacket[] = {MACHINE_ID, CMD_DATA, 1, 0, 0xFF, 0xFF, 0};
-  par_put(statusPacket, 7);
+  //Prepare to shut down or reset
+  if (reset) {
+    Serial.println(F("The system is going down for reboot NOW!"));
+  } else {
+    Serial.println(F("The system is going down for system halt NOW!"));
+  }
+  Serial.end(); //Stop serial communication
+  //Send EOT to calculator to let it know we are going down
   uint8_t EOT[] = {MACHINE_ID, CMD_EOT, 0, 0}; //End of transmission
   par_put(EOT, 4);
-  Serial.println(F("System is going down NOW!"));
-  Serial.end(); //Stop serial communication
+  //Some final cleanup
+  stopTransmitDMX();
   digitalWrite(LED_PIN, LOW);
+
   if (reset) {
     asm volatile ("jmp 0"); //Reset the software (i.e. reboot)
   }
+  //else shutdown
+  //Set up power down sleep mode
+  set_sleep_mode(SLEEP_MODE_PWR_DOWN);
+  sleep_enable();
+  sleep_bod_disable();
   power_all_disable();
-  set_sleep_mode(2);
+  //sleep_cpu();
   sleep_mode();
   while (true) {
     //Sit-n-spin. Shouldn't get here since there is no way to get out of sleep.
