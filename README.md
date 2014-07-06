@@ -1,11 +1,11 @@
-dmx-84
+DMX-84
 ======
 
 *A DMX-512 driver for the TI-84*
 
 Overview
 --------
-dmx-84 is a hardware and software driver for TI-84 calculators to run DMX
+DMX-84 is a hardware and software driver for TI-84 calculators to run DMX
 equipment such as DJ and theater lights. It is currently written as an Axe
 include program, but it may be rewritten as an Axiom in a later version. The
 driver requires an Arduino-based adapter to transmit DMX.

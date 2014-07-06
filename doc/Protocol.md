@@ -1,4 +1,4 @@
-dmx-84 Protocol
+DMX-84 Protocol
 =====================
 
 *Protocol version 0.3*
@@ -6,7 +6,7 @@ dmx-84 Protocol
 Overview
 --------
 
-dmx-84 uses a simple communication protocol wrapped in the
+DMX-84 uses a simple communication protocol wrapped in the
 TI graphing calculator two-wire link protocol. This communication
 protocol allows the calculator to communicate with the Arduino to
 send commands, update channel data, etc. It is designed with maximum

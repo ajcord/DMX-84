@@ -1,5 +1,5 @@
 /**
- * The DATA Project
+ * DMX-84
  * Arduino firmware v0.3.3
  *
  * By Alex Cordonnier (ajcord)
