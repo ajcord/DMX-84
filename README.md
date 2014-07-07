@@ -43,5 +43,3 @@ The Arduino transmits DMX packets over a 5-pin XLR female jack. An LED mounted
 on the enclosure currently serves as a power indicator, although it can be
 controlled in software for any purpose. All of the hardware is housed in a
 small aluminum enclosure, painted black for theater use.
-
-
