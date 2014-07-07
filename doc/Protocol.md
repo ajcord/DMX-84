@@ -152,7 +152,7 @@ Command | Name | Description | Following Data
 `0xF0` | Shut down | Shuts down the Arduino, which responds with `0xF0` and then EOT. Only works in restricted mode. | None
 `0xF1` | Reset | Soft-resets the Arduino, which responds with `0xF1` and then EOT. Only works in restricted mode. | None
 `0xF8` | Status request | Responds with the current status flags. | None
-`0xF9` | Error request | Responds with the current error flags. | None
+`0xF9` | Error request | Responds with the current error flags and then resets them. | None
 `0xFA` | Version request | Responds with the 3-byte protocol and firmware versions, little-Endian style. | None
 `0xFB` | Protocol version request | Responds with the 3-byte protocol version, little-Endian style. | None
 `0xFC` | Firmware version request | Responds with the 3-byte firmware version, little-Endian style. | None
