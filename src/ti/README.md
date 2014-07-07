@@ -1,8 +1,8 @@
 DMX-84 TI Source
-----------------
+================
 
 Which file do I use???
-======================
+----------------------
 
 DMX.8Xp is the Axe include file that all the other source files require.
 Files ending with 0 or theta are Axe source files. These cannot run by
@@ -20,7 +20,7 @@ LITEBORD is a work-in-progress, full-featured, graphical lighting control
 interface.
 
 How do I use it???
-==================
+------------------
 
 To run precompiled programs:
 

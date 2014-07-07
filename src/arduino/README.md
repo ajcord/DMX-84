@@ -1,15 +1,15 @@
 DMX-84 Arduino Source
----------------------
+=====================
 
 Which file do I use???
-======================
+----------------------
 
 Use ./firmware/firmware.ino to put the full, up-to-date firmware on your
 Arduino. The other directories exist for historical reasons and most likely
 haven't been updated recently.
 
 How do I use it???
-==================
+------------------
 
 Open the firmware file in your
 [Arduino IDE](http://www.arduino.cc/en/Main/Software).
