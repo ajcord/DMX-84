@@ -455,6 +455,10 @@ void loop() {
     case 0xE3: {
       //Set max channels to transmit
       uint16_t newMax = packetData[1] | (cmd & 1) << 8;
+      if (newMax == 0) {
+        //Since 512 can't be represented, 0 becomes 512.
+        newMax = 512;
+      }
       setMaxChannel(newMax); //Set the max number of channels
       
       Serial.print(F("Max channels now "));
@@ -845,7 +849,7 @@ void receive(uint8_t *data, uint16_t length) {
         ((millis() - lastCmdReceived) > AUTO_SHUT_DOWN_WARN_TIME)) {
       //We haven't received a message in a while and haven't sent a warning yet.
       //Send the warning.
-      uint8_t statusPacket[] = {MACHINE_ID, CMD_DATA, 1, 0, 0xFE, 0xFE, 0};
+      uint8_t statusPacket[] = {MACHINE_ID, CMD_DATA, 3, 0, 'S', 'O', 'S', 0xF5, 0};
       par_put(statusPacket, 7);
       SET_STATUS(SENT_SHUT_DOWN_WARNING_STATUS);
       Serial.println(F("Sent inactivity warning"));
