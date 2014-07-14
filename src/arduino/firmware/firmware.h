@@ -42,6 +42,7 @@
  * External function prototypes
  ******************************************************************************/
 
+void processCommand(uint8_t cmd);
 void manageTimeouts();
 void initShutDown(bool reset = false);
 int32_t readTemp(void);

@@ -28,6 +28,7 @@
 #define DEBUG_STATUS                    0x08
 #define RECEIVED_HANDSHAKE_STATUS       0x10
 #define SENT_SHUT_DOWN_WARNING_STATUS   0x20
+//#define SERIAL_DIAGNOSTICS_STATUS       0x40
 #define ERROR_STATUS                    0x80
 #define NORMAL_STATUS_MASK              0x11
 

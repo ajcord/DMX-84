@@ -20,6 +20,7 @@
  * Internal constants
  ******************************************************************************/
 
+#define MILLISECONDS_PER_BLINK    100
 
 /******************************************************************************
  * Internal function prototypes
@@ -56,12 +57,12 @@ void initLED(void) {
  * This function should be called at least 10 times per second.
  */
 void blinkLED(void) {
-  if (millis() % 100) { //Only change state every 100ms
+  if (millis() % MILLISECONDS_PER_BLINK) { //Only change state every 100ms
     return;
   }
 
   //Get the bit for the new state
-  uint8_t bit = (millis() / 100) % ledDuration;
+  uint8_t bit = (millis() / MILLISECONDS_PER_BLINK) % ledDuration;
   bool newState = (ledPattern >> bit) & 0x0001;
 
   //Turn the LED on or off

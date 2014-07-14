@@ -45,6 +45,7 @@
  ******************************************************************************/
 
 void resetLines(void);
+void printHex(const uint8_t *data, uint16_t length);
 uint16_t par_put(const uint8_t *data, uint16_t length);
 uint16_t par_get(uint8_t *data, uint16_t length);
 uint16_t checksum(const uint8_t *data, uint16_t length);
@@ -102,22 +103,29 @@ void send(const uint8_t *data, uint16_t length) {
    * if there was a transmit error.
    */
   uint16_t err = 0;
-  if (err = par_put(packetHead, 4)) {
+  if (err = par_put(packetHead, HEADER_LENGTH)) {
     Serial.print(F("Error sending head: "));
     Serial.println(err);
   } else if (err = par_put(data, length)) {
     Serial.print(F("Error sending data: "));
     Serial.println(err);
-  } else if (err = par_put(packetChecksum, 2)) {
+  } else if (err = par_put(packetChecksum, CHECKSUM_LENGTH)) {
     Serial.print(F("Error sending checksum: "));
     Serial.println(err);
   } else {
-    Serial.println(F("Sent reply"));
+    //Serial.println(F("Sent reply"));
 
     //Receive the ACK
-    receive(packetHead, 4);
-    Serial.println(F("Received ACK"));
+    receive(packetHead, HEADER_LENGTH);
+    //Serial.println(F("Received ACK"));
   }
+
+#if SERIAL_DEBUG_ENABLED
+  printHex(packetHead, HEADER_LENGTH);
+  printHex(data, length);
+  printHex(packetChecksum, CHECKSUM_LENGTH);
+  Serial.println();
+#endif
 }
 
 /**
@@ -134,8 +142,15 @@ void sendTICommand(uint8_t commandID) {
   packetHead[1] = commandID;
   packetHead[2] = 0;
   packetHead[3] = 0;
+  par_put(packetHead, HEADER_LENGTH);
 
-  par_put(packetHead, 4);
+#if SERIAL_DEBUG_ENABLED
+  printHex(packetHead, HEADER_LENGTH);
+  Serial.println();
+#endif
+
+  //Receive the ACK
+  //par_get(packetHead, HEADER_LENGTH);
 }
 
 /**
@@ -153,8 +168,49 @@ void sendTICommand(uint8_t commandID) {
  */
 
 void receive(uint8_t *data, uint16_t length) {
+  //Serial variables
+  uint8_t byte = 0;
+  uint16_t validCharsRead = 0;
+  uint16_t validBytesRead = 0;
+
   while (par_get(data, length)) {
     manageTimeouts();
+
+#if SERIAL_DEBUG_ENABLED
+    //Get any serial data, converting chars to hex bytes
+    while (Serial.available()) {
+      char nextChar = Serial.read();
+      if (nextChar >= '0' && nextChar <= '9') {
+        byte <<= 4;
+        byte |= (nextChar - '0');
+        validCharsRead++;
+      } else if (nextChar >= 'A' && nextChar <= 'F') {
+        byte <<= 4;
+        byte |= (nextChar - 'A' + 10);
+        validCharsRead++;
+      } else if (nextChar >= 'a' && nextChar <= 'f') {
+        byte <<= 4;
+        byte |= (nextChar - 'a' + 10);
+        validCharsRead++;
+      } else if (nextChar == '\n') {
+        //This is the end of the transmission. Process the data.
+        //Serial.print(F("Received command: "));
+        //Serial.println(packetData[0], HEX);
+        processCommand(packetData[0]);
+        validBytesRead = 0;
+        validCharsRead = 0;
+        continue;
+      } else {
+        //Invalid character. Skip adding the byte.
+        continue;
+      }
+      if (validCharsRead > 0 && validCharsRead % 2 == 0) {
+        packetData[validBytesRead] = byte;
+        validBytesRead++;
+        byte = 0;
+      }
+    }
+#endif
   }
 }
 
@@ -176,18 +232,8 @@ uint8_t getPacket(void) {
     //At first, only get the header so we know the length of the data (if any)
     receive(packetHead, HEADER_LENGTH);
     
-    Serial.println();
-    Serial.println(F("Received header:"));
-    
-    for (uint8_t i = 0; i < HEADER_LENGTH; i++) {
-      if (packetHead[i] < 0x10) {
-        Serial.print(F("0"));
-      }
-      Serial.print(packetHead[i], HEX);
-      Serial.print(F(" "));
-    }
-    Serial.println();
-    
+    printHex(packetHead, HEADER_LENGTH);
+
     uint16_t length = packetHead[2] | packetHead[3] << 8;
     
     if(packetHead[1] == CMD_RDY) { //Ready check - required once at startup
@@ -198,31 +244,32 @@ uint8_t getPacket(void) {
       //Data packet should always contain data, but check to be safe
       if (length) {
         receive(packetData, length);
-        
-        Serial.println(F("Received data:"));
-        for (uint16_t i = 0; i < length; i++) {
-          if (packetData[i] < 0x10) {
-            Serial.print(F("0"));
-          }
-          Serial.print(packetData[i], HEX);
-          Serial.print(F(" "));
-        }
-        Serial.println();
-        
-        receive(packetChecksum, 2);
+        printHex(packetData, length);
+
+        receive(packetChecksum, CHECKSUM_LENGTH);
+        printHex(packetChecksum, CHECKSUM_LENGTH);
+
         uint16_t receivedChksm = packetChecksum[0] | packetChecksum[1] << 8;
         uint16_t calculatedChksm = checksum(packetData, length);
+
+#if SERIAL_DEBUG_ENABLED
+        Serial.println();
+#endif
+
         if (calculatedChksm == receivedChksm) {
           //Checksum is valid. Acknowledge the packet.
           sendTICommand(CMD_ACK);
           //Stop waiting and return
           keepWaiting = false;
         } else {
-          Serial.print(F("ERROR: Expected checksum: "));
+          Serial.print(F("Error: expected checksum: "));
           Serial.println(calculatedChksm, HEX);
           sendTICommand(CMD_ERR);
-          }
+        }
       }
+    } else if (packetHead[1] == CMD_ACK) {
+      //Somehow we are receiving an ACK when we aren't supposed to.
+      //Accept it anyway (nothing to do).
     } else {
       /* Either we haven't received the handshake yet or the packet type wasn't
        * recognized.
@@ -230,7 +277,7 @@ uint8_t getPacket(void) {
       //Eat the rest of the packet
       if (length) {
         receive(packetData, length);
-        receive(packetChecksum, 2);
+        receive(packetChecksum, CHECKSUM_LENGTH);
       }
       //Send a NAK to indicate the packet was ignored.
       sendTICommand(CMD_SKIP_EXIT);
@@ -238,7 +285,30 @@ uint8_t getPacket(void) {
     }
   }
 
+#if SERIAL_DEBUG_ENABLED
+  Serial.println();
+#endif
+
   return packetData[0];
+}
+
+/**
+ * printHex - Prints some hex bytes to the serial port.
+ *
+ * Parameters:
+ *    const uint8_t *data: A pointer to the data to print
+ *    uint16_t length: The number of bytes to print
+ */
+void printHex(const uint8_t *data, uint16_t length) {
+#if SERIAL_DEBUG_ENABLED
+  for (uint16_t i = 0; i < length; i++) {
+    if (data[i] < 0x10) {
+      Serial.print(F("0"));
+    }
+    Serial.print(data[i], HEX);
+    Serial.print(F(" "));
+  }
+#endif
 }
 
 /**

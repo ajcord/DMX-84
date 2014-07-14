@@ -1,6 +1,6 @@
 /**
  * DMX-84
- * Arduino firmware v0.4
+ * Arduino firmware v0.5
  *
  * This file contains the code that processes received commands and generally
  * manages the Arduino.
@@ -42,7 +42,7 @@
 
 //Firmware version
 #define FIRMWARE_VERSION_MAJOR          0
-#define FIRMWARE_VERSION_MINOR          4
+#define FIRMWARE_VERSION_MINOR          5
 #define FIRMWARE_VERSION_PATCH          0
 
 //Miscellaneous
@@ -52,7 +52,6 @@
  * Internal function prototypes
  ******************************************************************************/
 
-void processCommand(uint8_t cmd);
 bool setMaxChannel(uint16_t newMaxChannel = DEFAULT_MAX_CHANNELS);
 void startTransmitDMX(void);
 void stopTransmitDMX(void);
@@ -76,8 +75,6 @@ uint32_t lastCmdReceived = 0; //The time the last command was received
  * Note: This function is called once at power up.
  */
 void setup() {
-  resetStatus(); //No flags initially set
-
   initLED(); //Initialize the LED
 
   /* Commented out because the temperature sensor can vary wildly between
@@ -97,15 +94,17 @@ void setup() {
 
   initComm(); //Initialize communication
 
+  resetStatus(); //No flags initially set
+
   //Set up DMX
   DmxSimple.usePin(DMX_OUT_PIN); //Set the pin to transmit DMX on
   startTransmitDMX(); //Enable DMX
   setMaxChannel(DEFAULT_MAX_CHANNELS); //Set the max channels to transmit
 
-  Serial.println(F("Ready"));
-
   //Tell the calculator we're up and running
   sendTICommand(CMD_CTS);
+
+  Serial.println(F("Ready"));
 }
 
 /**
@@ -677,9 +676,10 @@ void initShutDown(bool reset) {
   } else {
     Serial.println(F("The system is going down for system halt NOW!"));
   }
-  Serial.end(); //Stop serial communication
   //Send EOT to calculator to let it know we are going down
   sendTICommand(CMD_EOT);
+
+  Serial.end(); //Stop serial communication
   //Some final cleanup
   stopTransmitDMX();
   digitalWrite(LED_PIN, LOW);
