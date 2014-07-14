@@ -1,7 +1,7 @@
 DMX-84 Protocol
-=====================
+===============
 
-*Protocol version 0.3.1*
+*Protocol version 0.3.2*
 
 Overview
 --------
@@ -122,6 +122,9 @@ message the Arduino can send. If the Arduino doesn't receive a command
 within 60 seconds, it will automatically shut down to save the
 calculator's batteries in case the calculator is powering the Arduino.
 
+Reference
+---------
+
 ### Command bytes
 
 Command | Name | Description | Following Data
@@ -143,7 +146,7 @@ Command | Name | Description | Following Data
 `0x32` | Exchange 256 channels | Exchanges 256 channels between 0-255 and 256-511. | None
 `0x40`, `0x41` | Get single channel value | Gets the value of a single channel. Last bit of command denotes upper bit of channel number. | Next byte is LSB of channel number.
 `0x42` | Get all channel values | Gets the value of all channels. | None
-`0x5A` | Toggle LED | Toggles the LED (for debugging). | None
+`0xDB` | Debug Command | Sets the LED to blink in the debug pattern. | None
 `0xE0` | Stop DMX | Stops transmitting DMX. | None
 `0xE1` | Start DMX | Starts transmitting DMX. Note that DMX is set to transmit upon power up. | None
 `0xE2`, `0xE3` | Set max channels | Sets the maximum number of channels to transmit. Last bit of command denotes upper bit of channel number. Note that a value of 0 sets the max channels to 512. | Next byte is LSB of number of channels.
@@ -158,3 +161,29 @@ Command | Name | Description | Following Data
 `0xFC` | Firmware version request | Responds with the 3-byte firmware version, little-Endian style. | None
 `0xFD` | Temperature request | Responds with the approximate 4-byte core temperature in millidegrees Celsius, little-Endian style. | None
 `0xFE` | Uptime request | Responds with the 4-byte uptime in milliseconds, little-Endian style. | None
+
+
+### Status Codes
+
+Bit | Name | Values
+----|------|------------
+0 | DMX Enabled | 1: enabled, 0: disabled
+1 | Digital Blackout Enabled | 1: enabled, 0: disabled
+2 | Restricted Mode | 1: in restricted mode, 0: not in restricted mode
+4 | Received Handshake | 1: have received ready check packet, 0: have not
+5 | Sent Shutdown Warning | 1: have sent shutdown warning, 0: have not
+7 | Error Status | 1: errors have occurred since last error request, 0: no errors
+
+
+### Error Codes
+
+Bit | Name | Description
+----|------|------------
+0 | DMX Disabled Error | Received DMX command when DMX was disabled
+1 | Digital Blackout Error | Received DMX command when digital blackout was enabled
+2 | Restricted Mode Error | Received restricted command when not in restricted mode
+3 | Invalid Value | A command contained an invalid parameter value
+4 | Timeout | Communication timed out
+5 | Bad Packet | A packet was malformed or had an invalid checksum
+6 | Unknown Command | An unknown command was received
+7 | Unknown Error | An error occurred, but the exact cause cannot be determined

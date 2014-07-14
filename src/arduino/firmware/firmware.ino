@@ -1,205 +1,146 @@
 /**
  * DMX-84
- * Arduino firmware v0.3.3
+ * Arduino firmware v0.4
  *
- * By Alex Cordonnier (ajcord)
+ * This file contains the code that processes received commands and generally
+ * manages the Arduino.
  *
- * This file contains the code that communicates with the calculator,
- * processes received commands, and generally manages the Arduino.
- *
- * Last modified July 6, 2014
+ * Last modified July 13, 2014
  */
 
 /******************************************************************************
  * Includes
  ******************************************************************************/
 
+#include "Arduino.h"
 #include <avr/sleep.h>
 #include <avr/power.h>
 #include <DmxSimple.h>
 
+#include "firmware.h"
+#include "status.h"
+#include "comm.h"
+#include "LED.h"
+
 /******************************************************************************
- * Preprocessor definitions
+ * Internal constants
  ******************************************************************************/
 
 //DMX
 #define MAX_DMX               512
 #define DEFAULT_MAX_CHANNELS  128
 
-//Pins and hardware
-#define LED_PIN               9
-#define DMX_OUT_PIN           10
-#define TI_RING_PIN           4
-#define TI_TIP_PIN            6
-
-//Calculator communication
-#define MACHINE_ID            0x23
-#define CMD_CTS               0x09
-#define CMD_DATA              0x15
-#define CMD_SKIP_EXIT         0x36
-#define CMD_ACK               0x56
-#define CMD_ERR               0x5A
-#define CMD_RDY               0x68
-#define CMD_EOT               0x92
-#define ERR_READ_TIMEOUT      1000
-#define ERR_WRITE_TIMEOUT     2000
-#define TIMEOUT               4000
-#define GET_ENTER_TIMEOUT     30000
-#define MACHINE_ID_BYTE       0
-#define COMMAND_ID_BYTE       1
-#define LENGTH_LOW_BYTE       2
-#define LENGTH_HIGH_BYTE      (LENGTH_LOW_BYTE + 1)
-#define HEADER_LENGTH         4
-#define PACKET_DATA_LENGTH    519
-#define CHECKSUM_LENGTH       2
-#define CONTENTS_START        HEADER_LENGTH
-#define CHECKSUM_LOW_BYTE     (HEADER_LENGTH + PACKET_DATA_LENGTH)
-#define CHECKSUM_HIGH_BYTE    (CHECKSUM_LOW_BYTE + 1)
-
-//Flag utilities
-#define SET_STATUS(f)         (statusFlags |= (f))
-#define CLEAR_STATUS(f)       (statusFlags &= ~(f))
-#define TOGGLE_STATUS(f)      (statusFlags ^= (f))
-#define TEST_STATUS(f)        (statusFlags & (f))
-#define RESET_STATUS()        (statusFlags = 0)
-#define SET_ERROR(f)          (errorFlags |= (f))
-#define CLEAR_ERROR(f)        (errorFlags &= ~(f))
-#define TOGGLE_ERROR(f)       (errorFlags ^= (f))
-#define TEST_ERROR(f)         (errorFlags & (f))
-#define RESET_ERRORS()        (errorFlags = 0)
-
-//Status flags
-#define LED_STATUS                      0x01
-#define DMX_ENABLED_STATUS              0x02
-#define DIGITAL_BLACKOUT_ENABLED_STATUS 0x04
-#define RESTRICTED_MODE_STATUS          0x08
-#define SENT_SHUT_DOWN_WARNING_STATUS   0x10
-#define RECEIVED_HANDSHAKE_STATUS       0x20
-#define ERROR_STATUS                    0x80
-
-//Error flags
-#define DMX_DISABLED_ERROR              0x01
-#define DIGITAL_BLACKOUT_ERROR          0x02
-#define RESTRICTED_MODE_ERROR           0x04
-#define UNKNOWN_COMMAND_ERROR           0x08
-#define BAD_PACKET_ERROR                0x10
-#define INVALID_VALUE_ERROR             0x20
-#define TIMEOUT_ERROR                   0x40
-#define UNKNOWN_ERROR                   0x80
-#define DMX_ERROR_MASK                  0x03
-#define COMMUNICATION_ERROR_MASK        0x78
-
 //System timeouts (milliseconds)
 #define AUTO_SHUT_DOWN_TIME             21600000 //6 hours
 #define AUTO_SHUT_DOWN_WARN_TIME        (AUTO_SHUT_DOWN_TIME - 60000) //5:59 hrs
 #define RESTRICTED_MODE_TIMEOUT         1000
 
-//Version numbers
+//Protocol version
 #define PROTOCOL_VERSION_MAJOR          0
 #define PROTOCOL_VERSION_MINOR          3
-#define PROTOCOL_VERSION_PATCH          1
+#define PROTOCOL_VERSION_PATCH          2
+
+//Firmware version
 #define FIRMWARE_VERSION_MAJOR          0
-#define FIRMWARE_VERSION_MINOR          3
-#define FIRMWARE_VERSION_PATCH          3
+#define FIRMWARE_VERSION_MINOR          4
+#define FIRMWARE_VERSION_PATCH          0
 
-//Compile-time options
-#define AUTO_SHUT_DOWN_ENABLED      1
+//Miscellaneous
+#define MAX_SYSTEM_TEMPERATURE          85000 //85 degrees C / 185 degrees F
 
 /******************************************************************************
- * Function declarations
+ * Internal function prototypes
  ******************************************************************************/
 
-//DMX and device utility
+void processCommand(uint8_t cmd);
 bool setMaxChannel(uint16_t newMaxChannel = DEFAULT_MAX_CHANNELS);
-void startTransmitDMX();
-void stopTransmitDMX();
-void initShutDown(bool reset = false);
-int32_t readTemp();
-
-//Calculator communication
-void waitForPacket(void);
-void resetLines(void);
-void receive(const uint8_t *data, uint16_t length);
-void reply(volatile uint8_t *data, uint16_t length);
-static uint16_t par_put(const uint8_t *data, uint16_t length);
-static uint16_t par_get(uint8_t *data, uint16_t length);
-uint16_t checksum(uint8_t *data, uint16_t length);
+void startTransmitDMX(void);
+void stopTransmitDMX(void);
 
 /******************************************************************************
- * Global variables
+ * Internal global variables
  ******************************************************************************/
 
-//DMX
 uint16_t maxChannel;
 
-//Calculator communication
-/*
-struct { //Input buffer from calculator. Contains one packet plus metadata.
-  uint8_t header[HEADER_LENGTH];
-  uint8_t contents[PACKET_DATA_LENGTH];
-  uint8_t checksumBytes[CHECKSUM_LENGTH];
-  uint16_t checksum;
-  uint16_t length; //The length of the packet as specified in the header
-  uint8_t cmd; //The command byte from the packet data, not the header
-} packet;
-*/
-uint8_t cmd = 0; //The last command received
-uint32_t lastCmdReceived = 0; //The time the last command was received
 uint32_t enteredRestrictedMode = 0; //The time that restricted mode was entered
-const uint8_t ACK[] = {MACHINE_ID, CMD_ACK, 0, 0}; //Acknowledge
-const uint8_t NAK[] = {MACHINE_ID, CMD_SKIP_EXIT, 1, 0, 1, 1, 0}; //Cancel Tx
-const uint8_t CTS[] = {MACHINE_ID, CMD_CTS, 0, 0}; //Clear to send
-const uint8_t ERR[] = {MACHINE_ID, CMD_ERR, 0, 0}; //Checksum error, retransmit
-
-//Buffers for input & output
-uint8_t packetHead[HEADER_LENGTH] = {0};
-uint8_t packetData[PACKET_DATA_LENGTH] = {0};
-uint8_t packetChecksum[CHECKSUM_LENGTH] = {0};
-
-//Flag variables
-uint8_t errorFlags = 0; //Any errors that have not yet been reported
-uint8_t statusFlags = 0; //The current firmware status
+uint32_t lastCmdReceived = 0; //The time the last command was received
 
 /******************************************************************************
- * Functions definitions
+ * Function definitions
  ******************************************************************************/
 
+/**
+ * setup - Sets up the I/O, status, DmxSimple, etc.
+ *
+ * Note: This function is called once at power up.
+ */
 void setup() {
-  RESET_STATUS(); //No flags initially set
-  resetLines(); //Set up the I/O lines
+  resetStatus(); //No flags initially set
+
+  initLED(); //Initialize the LED
+
+  /* Commented out because the temperature sensor can vary wildly between
+   * Arduinos and must be callibrated first, but there isn't a callibration
+   * mechanism implemented yet.
+   */
+  /*
+  //Core temperature self test
+  if (readTemp() > MAX_SYSTEM_TEMPERATURE) {
+    //Stop here and flash error
+    setLEDPattern(ERROR_LED_PATTERN, ERROR_LED_DURATION);
+    while (1) {
+      blinkLED();
+    }
+  }
+  */
+
+  initComm(); //Initialize communication
 
   //Set up DMX
   DmxSimple.usePin(DMX_OUT_PIN); //Set the pin to transmit DMX on
   startTransmitDMX(); //Enable DMX
   setMaxChannel(DEFAULT_MAX_CHANNELS); //Set the max channels to transmit
 
-  //Not sure what I'll end up using the LED for. For now, it will be a power indicator.
-  SET_STATUS(LED_STATUS);
-  pinMode(LED_PIN, OUTPUT);
-  digitalWrite(LED_PIN, HIGH);
-
-  //Start serial communication with the computer
-  Serial.begin(115200);
   Serial.println(F("Ready"));
 
   //Tell the calculator we're up and running
-  par_put(CTS, 4);
+  sendTICommand(CMD_CTS);
 }
 
+/**
+ * loop - Receives packets and processes the received commands.
+ *
+ * Note: This function is called in a forever loop in main().
+ */
 void loop() {
-  waitForPacket();
+  uint8_t cmd = getPacket();
+
+  /* We received a command, so remember the timestamp and clear the shutdown 
+   * warning status.
+   */
   lastCmdReceived = millis();
-  
-  cmd = packetData[0];
-  /*
-  Serial.print(F("Cmd: "));
-  Serial.println(cmd, HEX);
-  */
+  if (testStatus(SENT_SHUT_DOWN_WARNING_STATUS)) {
+    //We need to clear the status and reset the LED flashing since
+    //auto shut down has been cancelled.
+    clearStatus(SENT_SHUT_DOWN_WARNING_STATUS);
+    restoreLastPattern();
+  }
+
+  processCommand(cmd);
+}
+
+/**
+ * processCommand - Processes a received command.
+ *
+ * Parameter:
+ *    uint8_t cmd: the command byte received
+ */
+void processCommand(uint8_t cmd) {
   switch (cmd) {
     case 0x00: {
       //Heartbeat
-      uint8_t packet[] = {0}; //Will not be sent
-      reply(packet, 0); //Echo the command to acknowledge it
+      send(&cmd, 1); //Echo the command to acknowledge it
       Serial.println(F("Heartbeat"));
       break;
     }
@@ -207,10 +148,10 @@ void loop() {
     case 0x01: {
       //Enable restricted mode
       //Allows protected commands to be executed for one second.
-      SET_STATUS(RESTRICTED_MODE_STATUS);
+      setStatus(RESTRICTED_MODE_STATUS);
       enteredRestrictedMode = millis();
-      uint8_t packet[] = {0}; //Will not be sent
-      reply(packet, 0); //Echo the command to acknowledge it
+
+      send(&cmd, 1); //Echo the command to acknowledge it
       Serial.println(F("/!\\ Now in restricted mode"));
       break;
     }
@@ -402,8 +343,8 @@ void loop() {
     case 0x41: {
       //Reply with channel value for specific channel
       uint16_t channel = packetData[1] | (cmd & 1) << 8;
-      uint8_t packet[] = {dmxBuffer[channel]};
-      reply(packet, 1);
+      uint8_t packet[] = {cmd, dmxBuffer[channel]};
+      send(packet, 2);
       
       Serial.print(F("Channel "));
       Serial.print(channel);
@@ -414,7 +355,11 @@ void loop() {
     
     case 0x42: {
       //Reply with all channel values
-      reply(dmxBuffer, 512);
+      packetData[0] = cmd;
+      for (uint16_t i = 0; i < 512; i++) {
+        packetData[i+1] = dmxBuffer[i];
+      }
+      send(packetData, 512);
       
       Serial.println(F("Channel values:"));
       for (uint16_t i = 0; i < 512; i++) {
@@ -425,15 +370,17 @@ void loop() {
       
       break;
     }
-    
-    case 0x5A: {
-      //Toggle the LED (for debugging)
-      TOGGLE_STATUS(LED_STATUS);
-      digitalWrite(LED_PIN, TEST_STATUS(LED_STATUS));
+
+    case 0xDB: {
+      //Toggle the LED debug pattern
+      toggleStatus(DEBUG_STATUS);
+      if (testStatus(DEBUG_STATUS)) {
+        setLEDPattern(DEBUG_LED_PATTERN, DEBUG_LED_DURATION);
+      } else {
+        restoreLastPattern();
+      }
       break;
     }
-    
-    /* Intermediate commands reserved for future use */
     
     case 0xE0: {
       //Stop transmitting DMX
@@ -456,7 +403,7 @@ void loop() {
       //Set max channels to transmit
       uint16_t newMax = packetData[1] | (cmd & 1) << 8;
       if (newMax == 0) {
-        //Since 512 can't be represented, 0 becomes 512.
+        //Since 512 can't be represented in 9 bits, 0 becomes 512.
         newMax = 512;
       }
       setMaxChannel(newMax); //Set the max number of channels
@@ -469,7 +416,7 @@ void loop() {
     case 0xE4: {
       //Start a digital blackout
       DmxSimple.startDigitalBlackout();
-      SET_STATUS(DIGITAL_BLACKOUT_ENABLED_STATUS);
+      setStatus(DIGITAL_BLACKOUT_ENABLED_STATUS);
       
       Serial.println(F("Started digital blackout"));
       break;
@@ -478,7 +425,7 @@ void loop() {
     case 0xE5: {
       //Stop a digital blackout
       DmxSimple.stopDigitalBlackout();
-      CLEAR_STATUS(DIGITAL_BLACKOUT_ENABLED_STATUS);
+      clearStatus(DIGITAL_BLACKOUT_ENABLED_STATUS);
       
       Serial.println(F("Stopped digital blackout"));
       break;
@@ -486,52 +433,54 @@ void loop() {
     
     case 0xF0: {
       //Initiate safe shutdown sequence - only works in restricted mode
-      uint8_t packet[] = {0};
-      reply(packet, 0);
+      send(&cmd, 1);
       initShutDown();
       break;
     }
     
     case 0xF1: {
       //Initiate soft reset - only works in restricted mode
-      uint8_t packet[] = {0};
-      reply(packet, 0);
+      send(&cmd, 1);
       initShutDown(true);
       break;
     }
     
     case 0xF8: {
       //Reply with status flags
-      uint8_t packet[] = {statusFlags};
-      reply(packet, 1);
+      uint8_t status = getStatus();
+      uint8_t packet[] = {cmd, status};
+      send(packet, 2);
       
       Serial.print(F("Status flags: "));
-      Serial.println(statusFlags, HEX);
+      Serial.println(status, HEX);
       break;
     }
     
     case 0xF9: {
       //Reply with error flags
-      uint8_t packet[] = {errorFlags};
-      reply(packet, 1);
+      uint8_t errors = getErrors();
+      uint8_t packet[] = {cmd, errors};
+      send(packet, 2);
       
       Serial.print(F("Error flags: "));
-      Serial.println(errorFlags, HEX);
+      Serial.println(errors, HEX);
       
-      RESET_ERRORS(); //Clear out the errors now that they have been reported
-      CLEAR_STATUS(ERROR_STATUS);
+      resetErrors(); //Clear out the errors now that they have been reported
       break;
     }
     
     case 0xFA: {
       //Reply with version numbers
-      uint8_t packet[] = {PROTOCOL_VERSION_PATCH,
-                          PROTOCOL_VERSION_MINOR,
-                          PROTOCOL_VERSION_MAJOR,
-                          FIRMWARE_VERSION_PATCH,
-                          FIRMWARE_VERSION_MINOR,
-                          FIRMWARE_VERSION_MAJOR};
-      reply(packet, 6);
+      uint8_t packet[] = {
+        cmd,
+        PROTOCOL_VERSION_PATCH,
+        PROTOCOL_VERSION_MINOR,
+        PROTOCOL_VERSION_MAJOR,
+        FIRMWARE_VERSION_PATCH,
+        FIRMWARE_VERSION_MINOR,
+        FIRMWARE_VERSION_MAJOR
+      };
+      send(packet, 7);
       
       Serial.print(F("Protocol version: "));
       Serial.print(PROTOCOL_VERSION_MAJOR);
@@ -551,10 +500,13 @@ void loop() {
     
     case 0xFB: {
       //Reply with protocol version number
-      uint8_t packet[] = {PROTOCOL_VERSION_PATCH,
-                          PROTOCOL_VERSION_MINOR,
-                          PROTOCOL_VERSION_MAJOR};
-      reply(packet, 3);
+      uint8_t packet[] = {
+        cmd,
+        PROTOCOL_VERSION_PATCH,
+        PROTOCOL_VERSION_MINOR,
+        PROTOCOL_VERSION_MAJOR
+      };
+      send(packet, 4);
       
       Serial.print(F("Protocol version: "));
       Serial.print(PROTOCOL_VERSION_MAJOR);
@@ -567,10 +519,13 @@ void loop() {
     
     case 0xFC: {
       //Reply with firmware version number
-      uint8_t packet[] = {FIRMWARE_VERSION_PATCH,
-                          FIRMWARE_VERSION_MINOR,
-                          FIRMWARE_VERSION_MAJOR};
-      reply(packet, 3);
+      uint8_t packet[] = {
+        cmd,
+        FIRMWARE_VERSION_PATCH,
+        FIRMWARE_VERSION_MINOR,
+        FIRMWARE_VERSION_MAJOR
+      };
+      send(packet, 4);
       
       Serial.print(F("Firmware version: "));
       Serial.print(FIRMWARE_VERSION_MAJOR);
@@ -585,12 +540,13 @@ void loop() {
       //Reply with current temperature
       uint32_t temp = readTemp();
       uint8_t packet[] = {
+        cmd,
         (temp & 0xFF),
         (temp & 0xFF00) >> 8,
         (temp & 0xFF0000) >> 16,
         (temp & 0xFF000000) >> 24
       };
-      reply(packet, 4);
+      send(packet, 5);
       
       Serial.print(F("Current temperature: "));
       Serial.print(temp/1000.0);
@@ -602,26 +558,25 @@ void loop() {
       //Reply with uptime in milliseconds
       uint32_t uptime = millis();
       uint8_t packet[] = {
+        cmd,
         (uptime & 0xFF),
         (uptime & 0xFF00) >> 8,
         (uptime & 0xFF0000) >> 16,
         (uptime & 0xFF000000) >> 24
       };
-      reply(packet, 4);
+      send(packet, 5);
       
       Serial.print(F("Uptime: "));
-      Serial.print(uptime/1000);
+      Serial.print(uptime/1000.0);
       Serial.println(F(" seconds"));
       break;
     }
     
     default: {
       //Unknown command; set the error code
-      SET_ERROR(UNKNOWN_COMMAND_ERROR);
-      uint8_t packet[] = {errorFlags};
-      reply(packet, 1);
+      setError(UNKNOWN_COMMAND_ERROR);
       
-      Serial.println(F("Error: Unknown command"));
+      Serial.println(F("Error: unknown command"));
       break;
     }
   }
@@ -634,13 +589,12 @@ void loop() {
  */
 
 bool setMaxChannel(uint16_t newMaxChannel) {
-  /* Setting max channels to zero disables DMX, so prevent doing that
-     accidentally */
+  //Setting max channels to zero disables DMX, so prevent that
   if (newMaxChannel == 0 || newMaxChannel > MAX_DMX) {
-    SET_ERROR(INVALID_VALUE_ERROR); //Invalid value
+    setError(INVALID_VALUE_ERROR); //Invalid value
     return false;
-  } else if (!TEST_STATUS(DMX_ENABLED_STATUS)) {
-    SET_ERROR(DMX_DISABLED_ERROR); //DMX is disabled
+  } else if (!testStatus(DMX_ENABLED_STATUS)) {
+    setError(DMX_DISABLED_ERROR); //DMX is disabled
     return false;
   } else {
     maxChannel = newMaxChannel;
@@ -653,18 +607,53 @@ bool setMaxChannel(uint16_t newMaxChannel) {
  * startTransmitDMX - Enables DMX output
  */
 
-void startTransmitDMX() {
+void startTransmitDMX(void) {
   DmxSimple.maxChannel(maxChannel); //Start transmitting DMX
-  SET_STATUS(DMX_ENABLED_STATUS); //Set the transmit enable flag
+  setStatus(DMX_ENABLED_STATUS); //Set the transmit enable flag
 }
 
 /**
  * stopTransmitDMX - Disables DMX output
  */
 
-void stopTransmitDMX() {
+void stopTransmitDMX(void) {
   DmxSimple.maxChannel(0); //Stop transmitting DMX
-  CLEAR_STATUS(DMX_ENABLED_STATUS); //Clear the transmit enable flag
+  clearStatus(DMX_ENABLED_STATUS); //Clear the transmit enable flag
+}
+
+/**
+ * manageTimeouts - Handles checking if the timeout periods have passed
+ *
+ * This function should be called periodically at least once per second.
+ */
+void manageTimeouts() {
+  if (testStatus(RESTRICTED_MODE_STATUS) &&
+      (millis() - lastCmdReceived > RESTRICTED_MODE_TIMEOUT)) {
+    clearStatus(RESTRICTED_MODE_STATUS); //Clear the no-op flag after 1 second
+    Serial.println(F("Leaving restricted mode"));
+  }
+
+#if AUTO_SHUT_DOWN_ENABLED
+  if (!testStatus(SENT_SHUT_DOWN_WARNING_STATUS) &&
+      ((millis() - lastCmdReceived) > AUTO_SHUT_DOWN_WARN_TIME)) {
+    //We haven't received a message in a while and haven't sent a warning yet.
+    //Send the warning.
+    uint8_t packet[] = {'S', 'O', 'S'};
+    send(packet, 3);
+    setStatus(SENT_SHUT_DOWN_WARNING_STATUS);
+    setLEDPattern(SOS_LED_PATTERN, SOS_LED_DURATION);
+    Serial.println(F("Sent inactivity warning"));
+  } else if (testStatus(SENT_SHUT_DOWN_WARNING_STATUS) &&
+      ((millis() - lastCmdReceived) > AUTO_SHUT_DOWN_TIME)) {
+    //It's been 1 minute since we sent a warning. Time to shut down.
+    //Must enable restricted mode to shut down
+    Serial.println(F("Shutting down..."));
+    setStatus(RESTRICTED_MODE_STATUS);
+    initShutDown();
+  } else {
+    //Do nothing
+  }
+#endif
 }
 
 /**
@@ -676,8 +665,8 @@ void stopTransmitDMX() {
  */
 
 void initShutDown(bool reset) {
-  if (!TEST_STATUS(RESTRICTED_MODE_STATUS)) {
-    SET_ERROR(RESTRICTED_MODE_ERROR); //Last command wasn't no-op
+  if (!testStatus(RESTRICTED_MODE_STATUS)) {
+    setError(RESTRICTED_MODE_ERROR); //Last command wasn't no-op
     Serial.println(F("Error: must be in restricted mode"));
     return;
   }
@@ -690,8 +679,7 @@ void initShutDown(bool reset) {
   }
   Serial.end(); //Stop serial communication
   //Send EOT to calculator to let it know we are going down
-  uint8_t EOT[] = {MACHINE_ID, CMD_EOT, 0, 0}; //End of transmission
-  par_put(EOT, 4);
+  sendTICommand(CMD_EOT);
   //Some final cleanup
   stopTransmitDMX();
   digitalWrite(LED_PIN, LOW);
@@ -699,7 +687,7 @@ void initShutDown(bool reset) {
   if (reset) {
     asm volatile ("jmp 0"); //Reset the software (i.e. reboot)
   }
-  //else shutdown
+  //(else shutdown)
   //Set up power down sleep mode
   set_sleep_mode(SLEEP_MODE_PWR_DOWN);
   sleep_enable();
@@ -707,369 +695,31 @@ void initShutDown(bool reset) {
   power_all_disable();
   //sleep_cpu();
   sleep_mode();
-  while (true) {
+  while (1) {
     //Sit-n-spin. Shouldn't get here since there is no way to get out of sleep.
   }
 }
 
 /**
- * readTemp - Reads the core temperatue using the built-in temperature sensor.
+ * readTemp - Reads the approximate core temperatue using the built-in
+ * temperature sensor.
  * Returns:
  *    int32_t temp: the core temperature in millidegrees Celsius
  *
- * Note: Code from https://code.google.com/p/tinkerit/wiki/SecretThermometer
+ * Code from https://code.google.com/p/tinkerit/wiki/SecretThermometer
+ * Note: The temperature returned is not very accurate and must be callibrated
+ * to each Arduino.
  */
-int32_t readTemp() {
+int32_t readTemp(void) {
   int32_t result;
-  // Read temperature sensor against 1.1V reference
+  //Read temperature sensor against 1.1V reference
   ADMUX = _BV(REFS1) | _BV(REFS0) | _BV(MUX3);
-  delay(2); // Wait for Vref to settle
-  ADCSRA |= _BV(ADSC); // Convert
+  delay(2); //Wait for Vref to settle
+  ADCSRA |= _BV(ADSC); //Convert
   while (bit_is_set(ADCSRA,ADSC));
   result = ADCL;
   result |= ADCH << 8;
   result = (result - 125) * 1075;
   result = result / 9; //Rough calibration factor
   return result;
-}
-
-/******************************************************************************
- * Calculator communication functions
- ******************************************************************************/
-
-/**
- * waitForPacket - Waits for a valid packet to be received and stores received
- * data in packetData.
- */
-
-void waitForPacket(void) {
-  bool keepWaiting = true;
-  while (keepWaiting) {
-    resetLines();
-    
-    //At first, only get the header so we know the length of the data (if any)
-    receive(packetHead, HEADER_LENGTH);
-    
-    //uint32_t startTime = millis();
-    Serial.println();
-    Serial.println(F("Received header:"));
-    
-    for (uint8_t i = 0; i < HEADER_LENGTH; i++) {
-      if (packetHead[i] < 0x10) {
-        Serial.print(F("0"));
-      }
-      Serial.print(packetHead[i], HEX);
-      Serial.print(F(" "));
-    }
-    Serial.println();
-    
-    uint16_t length = packetHead[2] | packetHead[3] << 8;
-    
-    if(packetHead[1] == CMD_RDY) {//Ready check - required once at startup
-      //Serial.println(F("Packet was ready check"));
-      SET_STATUS(RECEIVED_HANDSHAKE_STATUS);
-      par_put(ACK, 4);
-      //Serial.println(F("Sent ACK"));
-    } else if (TEST_STATUS(RECEIVED_HANDSHAKE_STATUS) &&
-        packetHead[1] == CMD_DATA) { //Data packet - everything after RDY
-      //Data packet should always contain data, but this prevents infinite loops
-      if (length != 0) {
-        receive(packetData, length);
-        
-        Serial.println(F("Received data:"));
-        for (uint16_t i = 0; i < length; i++) {
-        if (packetData[i] < 0x10) {
-          Serial.print(F("0"));
-        }
-          Serial.print(packetData[i], HEX);
-          Serial.print(F(" "));
-        }
-        Serial.println();
-        
-        receive(packetChecksum, 2);
-        uint16_t receivedChksm = packetChecksum[0] | packetChecksum[1] << 8;
-        //Serial.println(F("Received checksum:"));
-        //Serial.println(receivedChksm, HEX);
-        uint16_t calculatedChksm = checksum(packetData, length);
-        if (calculatedChksm == receivedChksm) {
-          //Serial.println(F("Checksum is valid"));
-          par_put(ACK, 4);
-          //Serial.println(F("Sent ACK"));
-          //Serial.print(F("Time elapsed (ms): "));
-          //Serial.println(millis() - startTime);
-          //Stop waiting and return
-          keepWaiting = false;
-        } else {
-          Serial.print(F("ERROR: Expected checksum: "));
-          Serial.println(calculatedChksm, HEX);
-          par_put(ERR, 4);
-          //Serial.println(F("Requested retransmission"));
-        }
-      }
-    } else {
-      /* Either we haven't received the handshake yet or the packet type wasn't
-       * recognized.
-       */
-      //Eat the rest of the packet
-      if (length) {
-        receive(packetData, length);
-        receive(packetChecksum, 2);
-      }
-      //Send a NAK to indicate the packet was ignored.
-      par_put(NAK, 7);
-      Serial.println(F("Sent NAK"));
-    }
-  }
-  CLEAR_STATUS(SENT_SHUT_DOWN_WARNING_STATUS);
-}
-
-/**
- * receive - Waits to receive the specified length of data successfully.
- * Parameters:
- *    uint8_t *data: a pointer to store the received data
- *    uint16_t length: the length of data to receive
- *
- * Note: Retries until the transmission doesn't time out.
- * Also implements auto shutdown and clearing the restricted mode flag
- * since this is where the program spends a lot of its time waiting.
- * It spends more time in par_get, but I don't want to modify par_get's
- * functionality.
- */
-
-void receive(uint8_t *data, uint16_t length) {
-  CLEAR_STATUS(SENT_SHUT_DOWN_WARNING_STATUS);
-  while (par_get(data, length)) {
-    if (TEST_STATUS(RESTRICTED_MODE_STATUS) &&
-        (millis() - lastCmdReceived > RESTRICTED_MODE_TIMEOUT)) {
-      CLEAR_STATUS(RESTRICTED_MODE_STATUS); //Clear the no-op flag after 1 second
-      Serial.println(F("Leaving restricted mode"));
-    }
-#if AUTO_SHUT_DOWN_ENABLED
-    if (!TEST_STATUS(SENT_SHUT_DOWN_WARNING_STATUS) &&
-        ((millis() - lastCmdReceived) > AUTO_SHUT_DOWN_WARN_TIME)) {
-      //We haven't received a message in a while and haven't sent a warning yet.
-      //Send the warning.
-      uint8_t statusPacket[] = {MACHINE_ID, CMD_DATA, 3, 0, 'S', 'O', 'S', 0xF5, 0};
-      par_put(statusPacket, 7);
-      SET_STATUS(SENT_SHUT_DOWN_WARNING_STATUS);
-      Serial.println(F("Sent inactivity warning"));
-    } else if (TEST_STATUS(SENT_SHUT_DOWN_WARNING_STATUS) &&
-        ((millis() - lastCmdReceived) > AUTO_SHUT_DOWN_TIME)) {
-      //It's been 1 minute since we sent a warning. Time to shut down.
-      //Must enable restricted mode to shut down
-      Serial.println(F("Shutting down..."));
-      SET_STATUS(RESTRICTED_MODE_STATUS);
-      initShutDown();
-    } else {
-      //Do nothing
-    }
-#endif
-  }
-}
-
-/**
- * reply - Sends data back to the calculator using the same command as the last
- * one received.
- * Parameters:
- *    volatile uint8_t *data: a pointer to the raw data to send (will be
- *                            formatted as a packet by this function)
- *    uint16_t length: the length of data to send
- *
- * Note: The *data parameter must be volatile so it can reply directly with the
- * dmxBuffer if necessary.
- * Note: Reuses packetHead, packetData, and packetChecksum to save RAM.
- */
-
-void reply(volatile uint8_t *data, uint16_t length) {
-  packetHead[0] = MACHINE_ID;
-  packetHead[1] = CMD_DATA;
-  packetHead[2] = (length + 1) & 0x00FF;
-  packetHead[3] = (length + 1) >> 8;
-  packetData[0] = cmd;
-  for (uint16_t i = 0; i < length; i++) {
-    packetData[i + 1] = data[i];
-  }
-  uint16_t chksm = checksum(packetData, length + 1);
-  packetChecksum[0] = chksm & 0x00FF;
-  packetChecksum[1] = chksm >> 8;
-
-  /* These par_puts are in conditionals to prevent getting stuck receiving ACK
-   * if there was a transmit error.
-   */
-  uint16_t err = 0;
-  if (err = par_put(packetHead, 4)) {
-    Serial.print(F("Error sending head: "));
-    Serial.println(err);
-  } else if (err = par_put(packetData, length + 1)) {
-    Serial.print(F("Error sending data: "));
-    Serial.println(err);
-  } else if (err = par_put(packetChecksum, 2)) {
-    Serial.print(F("Error sending checksum: "));
-    Serial.println(err);
-  } else {
-    Serial.println(F("Sent reply"));
-
-    //Receive the ACK
-    receive(packetHead, 4);
-    Serial.println(F("Received ACK"));
-  }
-}
-
-/**
- * Arduino to TI linking routines by Christopher "Kerm Martian" Mitchell
- * http://www.cemetech.net/forum/viewtopic.php?t=4771
- * Modified by ajcord to remove commented-out code, reduce oversized variables,
- * and increase style consistency with the rest of the firmware.
- *
- * Do not modify any functionality below this line.
- */
-
-/**
- * resetLines - Resets the ports used for TI linking
- */
-
-void resetLines() {
-  pinMode(TI_RING_PIN, INPUT);           // set pin to input
-  digitalWrite(TI_RING_PIN, HIGH);       // turn on pullup resistors
-  pinMode(TI_TIP_PIN, INPUT);            // set pin to input
-  digitalWrite(TI_TIP_PIN, HIGH);        // turn on pullup resistors
-}
-
-/**
- * par_put - Transmits a length of data over the link port.
- * Parameters:
- *    const uint8_t *data: A pointer to the data to transmit
- *    uint16_t length: The number of bytes to transmit
- * Returns:
- *    uint16_t error: Zero if there was no error
- *                    Nonzero error data if there was an error
- */
-
-static uint16_t par_put(const uint8_t *data, uint16_t length) {
-  uint8_t bit;
-  uint16_t j;
-  uint32_t previousMillis = 0;
-  uint8_t byte;
-
-  //Serial.print(F("Sending "));
-  for(j = 0; j < length; j++) {
-    byte = data[j];
-    //Serial.print(byte, HEX);
-    //Serial.print(F(" "));
-
-    for (bit = 0; bit < 8; bit++) {
-      previousMillis = 0;
-      while ((digitalRead(TI_RING_PIN) << 1 | digitalRead(TI_TIP_PIN)) != 0x03) {
-        if (previousMillis++ > TIMEOUT)
-          return ERR_WRITE_TIMEOUT + j + 100 * bit;
-      };
-      if (byte & 1) {
-        pinMode(TI_RING_PIN, OUTPUT);
-        digitalWrite(TI_RING_PIN, LOW);
-        previousMillis = 0;
-        while (digitalRead(TI_TIP_PIN) == HIGH) {
-          if (previousMillis++ > TIMEOUT)
-            return ERR_WRITE_TIMEOUT + 10 + j + 100 * bit;
-        };
-
-        resetLines();
-        previousMillis = 0;
-        while (digitalRead(TI_TIP_PIN) == LOW) {
-          if (previousMillis++ > TIMEOUT)
-            return ERR_WRITE_TIMEOUT + 20 + j + 100 * bit;
-        };
-      } else {
-        pinMode(TI_TIP_PIN, OUTPUT);
-        digitalWrite(TI_TIP_PIN, LOW); //should already be set because of the pullup resistor register
-        previousMillis = 0;
-        while (digitalRead(TI_RING_PIN) == HIGH) {
-          if (previousMillis++ > TIMEOUT)
-            return ERR_WRITE_TIMEOUT + 30 + j + 100 * bit;
-        };
-
-        resetLines();
-        previousMillis = 0;
-        while (digitalRead(TI_RING_PIN) == LOW) {
-          if (previousMillis++ > TIMEOUT)
-            return ERR_WRITE_TIMEOUT + 40 + j + 100 * bit;
-        };
-      }
-      byte >>= 1;
-    }
-  }
-  //Serial.println(F(" "));
-  return 0;
-}
-
-/**
- * par_get - Receives a length of data over the link port.
- * Parameters:
- *    uint8_t *data: A pointer to store the received data
- *    uint16_t length: The number of bytes to receive
- * Returns:
- *    uint16_t error: Zero if there was no error
- *                    Nonzero error data if there was an error
- */
-
-static uint16_t par_get(uint8_t *data, uint16_t length) {
-  uint8_t bit;
-  uint16_t j;
-  uint32_t previousMillis = 0;
-
-  for(j = 0; j < length; j++) {
-    uint8_t v, byteout = 0;
-    for (bit = 0; bit < 8; bit++) {
-      previousMillis = 0;
-      while ((v = (digitalRead(TI_RING_PIN) << 1 | digitalRead(TI_TIP_PIN))) == 0x03) {
-        if (previousMillis++ > GET_ENTER_TIMEOUT)
-          return ERR_READ_TIMEOUT + j + 100 * bit;
-      }
-      if (v == 0x01) {
-        byteout = (byteout >> 1) | 0x80;
-        pinMode(TI_TIP_PIN, OUTPUT);
-        digitalWrite(TI_TIP_PIN, LOW); //should already be set because of the pullup resistor register
-        previousMillis = 0;
-        while (digitalRead(TI_RING_PIN) == LOW) { //wait for the other one to go low
-          if (previousMillis++ > TIMEOUT)
-            return ERR_READ_TIMEOUT + 10 + j + 100 * bit;
-        }
-        digitalWrite(TI_RING_PIN,HIGH);
-      } else {
-        byteout = (byteout >> 1) & 0x7F;
-        pinMode(TI_RING_PIN, OUTPUT);
-        digitalWrite(TI_RING_PIN, LOW); //should already be set because of the pullup resistor register
-        previousMillis = 0;
-        while (digitalRead(TI_TIP_PIN) == LOW) {
-          if (previousMillis++ > TIMEOUT)
-            return ERR_READ_TIMEOUT + 20 + j + 100 * bit;
-        }
-        digitalWrite(TI_TIP_PIN, HIGH);
-      }
-      pinMode(TI_RING_PIN, INPUT); // set pin to input
-      digitalWrite(TI_RING_PIN, HIGH); // turn on pullup resistors
-      pinMode(TI_TIP_PIN, INPUT); // set pin to input
-      digitalWrite(TI_TIP_PIN, HIGH); // turn on pullup resistors
-    }
-    data[j] = byteout;
-  }
-  return 0;
-}
-
-/**
- * checksum - Calculates the 16-bit checksum of some data.
- * Parameters:
- *    uint8_t *data: A pointer to the data to sum
- *    uint16_t length: The length of data to sum
- * Returns:
- *    uint16_t checksum: The lower 16 bits of the sum of the data
- * Note: Checksum algorithm adapted from the TI Link Guide.
- * http://merthsoft.com/linkguide/ti83+/packet.html
- * Ported to Arduino by ajcord.
- */
-uint16_t checksum(uint8_t *data, uint16_t length) {
-  uint16_t checksum = 0;
-  for(uint16_t x = 0; x < length; x++) {
-    checksum += data[x];  //overflow automatically limits to 16 bits
-  }
-  return checksum;
 }
