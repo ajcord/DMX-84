@@ -12,7 +12,7 @@ Flash patterns
 
 ### Normal mode
 
- 0 | 0 | 0 | 0 | 0 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1
+ 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 0 | 0 | 0 | 0 | 0
 ---|---|---|---|---|---|---|---|---|---|---|---|---|---|---
 
 When operating normally, the LED repeatedly flashes on for 1 second and off
@@ -22,7 +22,7 @@ or an infinite loop.
 
 ### Error mode
 
- 0 | 1 | 0 | 1
+ 1 | 0 | 1 | 0
 ---|---|---|---
 
 When the system encounters an error, it immediately begins flashing on and
