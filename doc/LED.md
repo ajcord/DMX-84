@@ -16,7 +16,7 @@ Flash patterns
 
 The various flash patterns are listed below in order of the probability of
 appearance. Each table indicates the LED state in 0.1-second intervals, where
-***X*** means the LED is on and ***_*** means the LED is off.
+**X** means the LED is on and **_** means the LED is off.
 
 ### Normal mode
 
