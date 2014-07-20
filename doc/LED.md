@@ -12,7 +12,7 @@ Flash patterns
 
 ### Normal mode
 
- 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 0 | 0 | 0 | 0 | 0
+ X | X | X | X | X | X | X | X | X | X |   |   |   |   |  
 ---|---|---|---|---|---|---|---|---|---|---|---|---|---|---
 
 When operating normally, the LED repeatedly flashes on for 1 second and off
@@ -22,7 +22,7 @@ or an infinite loop.
 
 ### Error mode
 
- 1 | 0 | 1 | 0
+ X |   | X |  
 ---|---|---|---
 
 When the system encounters an error, it immediately begins flashing on and
@@ -32,7 +32,7 @@ the LED returns to its previous flashing pattern.
 
 ### Auto shutdown mode
 
- 1 | 0 | 1 | 0 | 1 | 0 | 0 | 0 | 1 | 1 | 1 | 0 | 1 | 1 | 1 | 0 | 1 | 1 | 1 | 0 | 0 | 0 | 1 | 0 | 1 | 0 | 1 | 0 | 0 | 0 | 0 | 0
+ X |   | X |   | X |   |   |   | X | X | X |   | X | X | X |   | X | X | X |   |   |   | X |   | X |   | X |   |   |   |   |  
 ---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---
 
 If the system has not received a command in 5 hours and 59 minutes, it will
@@ -45,7 +45,7 @@ then the LED will revert to the previous flash pattern.
 
 ### Debug mode
 
- 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0
+ X |   |   |   |   |   |   |   |   |  
 ---|---|---|---|---|---|---|---|---|---
 
 If the system encounters a debug command from the calculator (`0xDB`), it
