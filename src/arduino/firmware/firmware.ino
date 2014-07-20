@@ -5,7 +5,7 @@
  * This file contains the code that processes received commands and generally
  * manages the Arduino.
  *
- * Last modified July 13, 2014
+ * Last modified July 20, 2014
  */
 
 /******************************************************************************
@@ -52,9 +52,9 @@
  * Internal function prototypes
  ******************************************************************************/
 
-bool setMaxChannel(uint16_t newMaxChannel = DEFAULT_MAX_CHANNELS);
-void startTransmitDMX(void);
-void stopTransmitDMX(void);
+static bool setMaxChannel(uint16_t newMaxChannel = DEFAULT_MAX_CHANNELS);
+static void startTransmitDMX(void);
+static void stopTransmitDMX(void);
 
 /******************************************************************************
  * Internal global variables
@@ -85,7 +85,7 @@ void setup() {
   //Core temperature self test
   if (readTemp() > MAX_SYSTEM_TEMPERATURE) {
     //Stop here and flash error
-    setLEDPattern(ERROR_LED_PATTERN, ERROR_LED_DURATION);
+    setError(UNKNOWN_ERROR);
     while (1) {
       blinkLED();
     }
@@ -123,7 +123,6 @@ void loop() {
     //We need to clear the status and reset the LED flashing since
     //auto shut down has been cancelled.
     clearStatus(SENT_SHUT_DOWN_WARNING_STATUS);
-    restoreLastPattern();
   }
 
   processCommand(cmd);
@@ -373,11 +372,6 @@ void processCommand(uint8_t cmd) {
     case 0xDB: {
       //Toggle the LED debug pattern
       toggleStatus(DEBUG_STATUS);
-      if (testStatus(DEBUG_STATUS)) {
-        setLEDPattern(DEBUG_LED_PATTERN, DEBUG_LED_DURATION);
-      } else {
-        restoreLastPattern();
-      }
       break;
     }
     
@@ -586,8 +580,7 @@ void processCommand(uint8_t cmd) {
  * Parameter:
  *    uint16_t newMaxChannel: The maximum number of channels to transmit (1-512)
  */
-
-bool setMaxChannel(uint16_t newMaxChannel) {
+static bool setMaxChannel(uint16_t newMaxChannel) {
   //Setting max channels to zero disables DMX, so prevent that
   if (newMaxChannel == 0 || newMaxChannel > MAX_DMX) {
     setError(INVALID_VALUE_ERROR); //Invalid value
@@ -605,8 +598,7 @@ bool setMaxChannel(uint16_t newMaxChannel) {
 /**
  * startTransmitDMX - Enables DMX output
  */
-
-void startTransmitDMX(void) {
+static void startTransmitDMX(void) {
   DmxSimple.maxChannel(maxChannel); //Start transmitting DMX
   setStatus(DMX_ENABLED_STATUS); //Set the transmit enable flag
 }
@@ -614,8 +606,7 @@ void startTransmitDMX(void) {
 /**
  * stopTransmitDMX - Disables DMX output
  */
-
-void stopTransmitDMX(void) {
+static void stopTransmitDMX(void) {
   DmxSimple.maxChannel(0); //Stop transmitting DMX
   clearStatus(DMX_ENABLED_STATUS); //Clear the transmit enable flag
 }
@@ -640,7 +631,6 @@ void manageTimeouts() {
     uint8_t packet[] = {'S', 'O', 'S'};
     send(packet, 3);
     setStatus(SENT_SHUT_DOWN_WARNING_STATUS);
-    setLEDPattern(SOS_LED_PATTERN, SOS_LED_DURATION);
     Serial.println(F("Sent inactivity warning"));
   } else if (testStatus(SENT_SHUT_DOWN_WARNING_STATUS) &&
       ((millis() - lastCmdReceived) > AUTO_SHUT_DOWN_TIME)) {
@@ -670,19 +660,21 @@ void initShutDown(bool reset) {
     return;
   }
 
+  //Send EOT to calculator to let it know we are going down
+  sendTICommand(CMD_EOT);
+  
   //Prepare to shut down or reset
   if (reset) {
     Serial.println(F("The system is going down for reboot NOW!"));
   } else {
     Serial.println(F("The system is going down for system halt NOW!"));
   }
-  //Send EOT to calculator to let it know we are going down
-  sendTICommand(CMD_EOT);
 
-  Serial.end(); //Stop serial communication
   //Some final cleanup
   stopTransmitDMX();
   digitalWrite(LED_PIN, LOW);
+  Serial.flush(); //Wait on any last messages to go through
+  Serial.end(); //Stop serial communication
 
   if (reset) {
     asm volatile ("jmp 0"); //Reset the software (i.e. reboot)

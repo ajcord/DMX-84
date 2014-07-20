@@ -4,7 +4,7 @@
  *
  * This file contains the code for managing the system status and error flags.
  *
- * Last modified July 13, 2014
+ * Last modified July 20, 2014
  */
 
 /******************************************************************************
@@ -30,8 +30,8 @@
  * Internal global variables
  ******************************************************************************/
 
-uint8_t errorFlags = 0; //Any errors that have not yet been reported
-uint8_t statusFlags = 0; //The current firmware status
+static uint8_t errorFlags = 0; //Any errors that have not yet been reported
+static uint8_t statusFlags = 0; //The current firmware status
 
 /******************************************************************************
  * Function definitions
@@ -45,6 +45,7 @@ uint8_t statusFlags = 0; //The current firmware status
  */
 void setStatus(uint8_t status) {
   statusFlags |= status;
+  chooseLEDPattern();
 }
 
 /**
@@ -55,6 +56,7 @@ void setStatus(uint8_t status) {
  */
 void clearStatus(uint8_t status) {
   statusFlags &= ~status;
+  chooseLEDPattern();
 }
 
 /**
@@ -65,6 +67,7 @@ void clearStatus(uint8_t status) {
  */
 void toggleStatus(uint8_t status) {
   statusFlags ^= status;
+  chooseLEDPattern();
 }
 
 /**
@@ -94,6 +97,7 @@ uint8_t getStatus(void) {
  */
 void resetStatus(void) {
   statusFlags = 0;
+  chooseLEDPattern();
 }
 
 /**
@@ -105,7 +109,7 @@ void resetStatus(void) {
 void setError(uint8_t error) {
   errorFlags |= error;
   setStatus(ERROR_STATUS);
-  setLEDPattern(ERROR_LED_PATTERN, ERROR_LED_DURATION);
+  chooseLEDPattern();
 }
 
 /**
@@ -116,6 +120,7 @@ void setError(uint8_t error) {
  */
 void clearError(uint8_t error) {
   errorFlags &= ~error;
+  chooseLEDPattern();
 }
 
 /**
@@ -126,6 +131,7 @@ void clearError(uint8_t error) {
  */
 void toggleError(uint8_t error) {
   errorFlags ^= error;
+  chooseLEDPattern();
 }
 
 /**
@@ -156,5 +162,5 @@ uint8_t getErrors(void) {
 void resetErrors(void) {
   errorFlags = 0;
   clearStatus(ERROR_STATUS);
-  restoreLastPattern();
+  chooseLEDPattern();
 }

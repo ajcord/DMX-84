@@ -4,7 +4,7 @@
  *
  * This file contains the code for managing the LED.
  *
- * Last modified July 13, 2014
+ * Last modified July 20, 2014
  */
 
 /******************************************************************************
@@ -15,6 +15,7 @@
 
 #include "LED.h"
 #include "firmware.h"
+#include "status.h"
 
 /******************************************************************************
  * Internal constants
@@ -31,11 +32,11 @@
  * Internal global variables
  ******************************************************************************/
 
-uint32_t ledPattern = 0;
-uint32_t ledDuration = 1;
+static uint32_t ledPattern = 0;
+static uint32_t ledDuration = 1;
 
-uint32_t previousPattern;
-uint32_t previousDuration;
+static uint32_t previousPattern = 0;
+static uint32_t previousDuration = 0;
 
 /******************************************************************************
  * Function definitions
@@ -48,7 +49,8 @@ uint32_t previousDuration;
  */
 void initLED(void) {
   pinMode(LED_PIN, OUTPUT);
-  setLEDPattern(NORMAL_LED_PATTERN, NORMAL_LED_DURATION);
+  ledPattern = NORMAL_LED_PATTERN;
+  ledDuration = NORMAL_LED_DURATION;
 }
 
 /**
@@ -70,26 +72,20 @@ void blinkLED(void) {
 }
 
 /**
- * setLEDPattern - Sets the blink pattern of the LED.
- *
- * Parameters:
- *    uint32_t pattern: the LED blink pattern. 1 bit = 0.1 seconds. 1 is on.
- *    uint8_t duration: the number of significant pattern bits
+ * chooseLEDPattern - Chooses the pattern to display based on the status flags.
  */
-void setLEDPattern(uint32_t pattern, uint8_t duration) {
-  //Save the current pattern so it can be restored later
-  previousPattern = ledPattern;
-  previousDuration = ledDuration;
-
-  //Set the new pattern
-  ledPattern = pattern;
-  ledDuration = duration;
-}
-
-/**
- * restoreLastPattern - Restores the previous blink pattern.
- */
-void restoreLastPattern(void) {
-  ledPattern = previousPattern;
-  ledDuration = previousDuration;
+void chooseLEDPattern(void) {
+  if (testStatus(DEBUG_STATUS)) {
+    ledPattern = DEBUG_LED_PATTERN;
+    ledDuration = DEBUG_LED_DURATION;
+  } else if (testStatus(ERROR_STATUS)) {
+    ledPattern = ERROR_LED_PATTERN;
+    ledDuration = ERROR_LED_DURATION;
+  } else if (testStatus(SENT_SHUT_DOWN_WARNING_STATUS)) {
+    ledPattern = SOS_LED_PATTERN;
+    ledDuration = SOS_LED_DURATION;
+  } else { //All systems nominal
+    ledPattern = NORMAL_LED_PATTERN;
+    ledDuration = NORMAL_LED_DURATION;
+  }
 }

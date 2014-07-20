@@ -4,7 +4,7 @@
  *
  * This file contains the external defines and prototypes for managing the LED.
  *
- * Last modified July 13, 2014
+ * Last modified July 20, 2014
  */
 
 #ifndef LED_H
@@ -22,7 +22,7 @@
  * External constants
  ******************************************************************************/
 
-//Each pattern bit is 0.1 seconds.
+//Each pattern bit is 0.1 seconds. The LSbit occurs first.
 //Duration is the repeat time in tenths of seconds.
 #ifdef LED_MODE_HEARTBEAT
 //Heartbeat blink mode
@@ -54,7 +54,6 @@
 
 void initLED(void);
 void blinkLED(void);
-void setLEDPattern(uint32_t pattern, uint8_t duration);
-void restoreLastPattern(void);
+void chooseLEDPattern(void);
 
 #endif

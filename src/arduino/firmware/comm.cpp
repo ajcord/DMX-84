@@ -5,7 +5,7 @@
  * This file contains the code for communicating with the calculator and the
  * serial port.
  *
- * Last modified July 13, 2014
+ * Last modified July 20, 2014
  */
 
 /******************************************************************************
@@ -44,11 +44,11 @@
  * Internal function prototypes
  ******************************************************************************/
 
-void resetLines(void);
-void printHex(const uint8_t *data, uint16_t length);
-uint16_t par_put(const uint8_t *data, uint16_t length);
-uint16_t par_get(uint8_t *data, uint16_t length);
-uint16_t checksum(const uint8_t *data, uint16_t length);
+static void printHex(const uint8_t *data, uint16_t length);
+static void resetLines(void);
+static uint16_t par_put(const uint8_t *data, uint16_t length);
+static uint16_t par_get(uint8_t *data, uint16_t length);
+static uint16_t checksum(const uint8_t *data, uint16_t length);
 
 /******************************************************************************
  * Internal global variables
@@ -99,6 +99,17 @@ void send(const uint8_t *data, uint16_t length) {
   packetChecksum[0] = chksm & 0x00FF;
   packetChecksum[1] = chksm >> 8;
 
+#if SERIAL_DEBUG_ENABLED
+  Serial.print(F("Sent: "));
+  printHex(packetHead, HEADER_LENGTH);
+  printHex(data, length);
+  printHex(packetChecksum, CHECKSUM_LENGTH);
+  Serial.println();
+
+  if (!testStatus(SERIAL_DIAGNOSTICS_STATUS)) {
+    //Prevent recursively calling receive()
+#endif
+
   /* These par_puts are in conditionals to prevent getting stuck receiving ACK
    * if there was a transmit error.
    */
@@ -119,12 +130,8 @@ void send(const uint8_t *data, uint16_t length) {
     receive(packetHead, HEADER_LENGTH);
     //Serial.println(F("Received ACK"));
   }
-
 #if SERIAL_DEBUG_ENABLED
-  printHex(packetHead, HEADER_LENGTH);
-  printHex(data, length);
-  printHex(packetChecksum, CHECKSUM_LENGTH);
-  Serial.println();
+  }
 #endif
 }
 
@@ -144,10 +151,9 @@ void sendTICommand(uint8_t commandID) {
   packetHead[3] = 0;
   par_put(packetHead, HEADER_LENGTH);
 
-#if SERIAL_DEBUG_ENABLED
+  Serial.print(F("Sent: "));
   printHex(packetHead, HEADER_LENGTH);
   Serial.println();
-#endif
 
   //Receive the ACK
   //par_get(packetHead, HEADER_LENGTH);
@@ -161,10 +167,8 @@ void sendTICommand(uint8_t commandID) {
  *    uint16_t length: the length of data to receive
  *
  * Retries receiving until the transmission doesn't time out.
- * Also implements auto shutdown and clearing the restricted mode flag
- * since this is where the program spends a lot of its time waiting.
- * It spends more time in par_get, but I don't want to modify par_get's
- * functionality too much.
+ * Also manages the timeouts and serial debug processing since this function
+ * gets called about once per second.
  */
 
 void receive(uint8_t *data, uint16_t length) {
@@ -196,7 +200,12 @@ void receive(uint8_t *data, uint16_t length) {
         //This is the end of the transmission. Process the data.
         //Serial.print(F("Received command: "));
         //Serial.println(packetData[0], HEX);
+        Serial.print(F("Debug: "));
+        printHex(packetData, validBytesRead);
+        Serial.println();
+        setStatus(SERIAL_DIAGNOSTICS_STATUS);
         processCommand(packetData[0]);
+        clearStatus(SERIAL_DIAGNOSTICS_STATUS);
         validBytesRead = 0;
         validCharsRead = 0;
         continue;
@@ -232,11 +241,13 @@ uint8_t getPacket(void) {
     //At first, only get the header so we know the length of the data (if any)
     receive(packetHead, HEADER_LENGTH);
     
+    Serial.print(F("Received: "));
     printHex(packetHead, HEADER_LENGTH);
 
     uint16_t length = packetHead[2] | packetHead[3] << 8;
     
     if(packetHead[1] == CMD_RDY) { //Ready check - required once at startup
+      Serial.println();
       setStatus(RECEIVED_HANDSHAKE_STATUS);
       sendTICommand(CMD_ACK);
     } else if (testStatus(RECEIVED_HANDSHAKE_STATUS) &&
@@ -252,9 +263,7 @@ uint8_t getPacket(void) {
         uint16_t receivedChksm = packetChecksum[0] | packetChecksum[1] << 8;
         uint16_t calculatedChksm = checksum(packetData, length);
 
-#if SERIAL_DEBUG_ENABLED
         Serial.println();
-#endif
 
         if (calculatedChksm == receivedChksm) {
           //Checksum is valid. Acknowledge the packet.
@@ -285,9 +294,7 @@ uint8_t getPacket(void) {
     }
   }
 
-#if SERIAL_DEBUG_ENABLED
   Serial.println();
-#endif
 
   return packetData[0];
 }
@@ -299,7 +306,7 @@ uint8_t getPacket(void) {
  *    const uint8_t *data: A pointer to the data to print
  *    uint16_t length: The number of bytes to print
  */
-void printHex(const uint8_t *data, uint16_t length) {
+static void printHex(const uint8_t *data, uint16_t length) {
 #if SERIAL_DEBUG_ENABLED
   for (uint16_t i = 0; i < length; i++) {
     if (data[i] < 0x10) {
@@ -323,8 +330,7 @@ void printHex(const uint8_t *data, uint16_t length) {
 /**
  * resetLines - Resets the ports used for TI linking
  */
-
-void resetLines() {
+static void resetLines() {
   pinMode(TI_RING_PIN, INPUT);           // set pin to input
   digitalWrite(TI_RING_PIN, HIGH);       // turn on pullup resistors
   pinMode(TI_TIP_PIN, INPUT);            // set pin to input
@@ -341,8 +347,7 @@ void resetLines() {
  *    uint16_t error: Zero if there was no error
  *                    Nonzero error data if there was an error
  */
-
-uint16_t par_put(const uint8_t *data, uint16_t length) {
+static uint16_t par_put(const uint8_t *data, uint16_t length) {
   uint8_t bit;
   uint16_t j;
   uint32_t previousMillis = 0;
@@ -404,8 +409,7 @@ uint16_t par_put(const uint8_t *data, uint16_t length) {
  *    uint16_t error: Zero if there was no error
  *                    Nonzero error data if there was an error
  */
-
-uint16_t par_get(uint8_t *data, uint16_t length) {
+static uint16_t par_get(uint8_t *data, uint16_t length) {
   uint8_t bit;
   uint16_t j;
   uint32_t previousMillis = 0;
@@ -462,7 +466,7 @@ uint16_t par_get(uint8_t *data, uint16_t length) {
  * http://merthsoft.com/linkguide/ti83+/packet.html
  * Ported to Arduino by ajcord.
  */
-uint16_t checksum(const uint8_t *data, uint16_t length) {
+static uint16_t checksum(const uint8_t *data, uint16_t length) {
   uint16_t checksum = 0;
   for(uint16_t x = 0; x < length; x++) {
     checksum += data[x]; //overflow automatically limits to 16 bits
