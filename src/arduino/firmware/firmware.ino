@@ -5,7 +5,7 @@
  * This file contains the code that processes received commands and generally
  * manages the Arduino.
  *
- * Last modified July 20, 2014
+ * Last modified July 26, 2014
  */
 
 /******************************************************************************
@@ -683,10 +683,10 @@ void initShutDown(bool reset) {
   //Set up power down sleep mode
   set_sleep_mode(SLEEP_MODE_PWR_DOWN);
   sleep_enable();
-  sleep_bod_disable();
   power_all_disable();
-  //sleep_cpu();
-  sleep_mode();
+  //sleep_bod_disable();
+  sleep_cpu();
+  //sleep_mode();
   while (1) {
     //Sit-n-spin. Shouldn't get here since there is no way to get out of sleep.
   }
