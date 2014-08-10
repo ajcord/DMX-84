@@ -21,7 +21,7 @@ The software driver on the calculator is an implementation of an
 application-specific protocol. The protocol is designed to be as lightweight as
 possible to minimize transmission time. To accomplish this, messages consist of
 a single command byte followed by optional parameters, wrapped in a standard TI
-link packet. For details on the protocol, see (/doc/Protocol.md).
+link packet. For details on the protocol, see [Protocol.md](/doc/Protocol.md).
 
 ### The hardware
 The hardware driver is an Arduino Pro Mini 328 - 5V/16MHz produced by Sparkfun.
