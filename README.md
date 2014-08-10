@@ -21,7 +21,7 @@ The software driver on the calculator is an implementation of an
 application-specific protocol. The protocol is designed to be as lightweight as
 possible to minimize transmission time. To accomplish this, messages consist of
 a single command byte followed by optional parameters, wrapped in a standard TI
-link packet. For details on the protocol, see /doc/Protocol.md.
+link packet. For details on the protocol, see (/doc/Protocol.md).
 
 ### The hardware
 The hardware driver is an Arduino Pro Mini 328 - 5V/16MHz produced by Sparkfun.
@@ -43,3 +43,14 @@ The Arduino transmits DMX packets over a 5-pin XLR female jack. An LED mounted
 on the enclosure currently serves as a power indicator, although it can be
 controlled in software for any purpose. All of the hardware is housed in a
 small aluminum enclosure, painted black for theater use.
+
+Open Source Licenses
+--------------------
+
+DMX-84 uses certain open source hardware and software.
+
+*[DmxSimple](http://code.google.com/p/tinkerit/wiki/DmxSimple) library: [LGPL](http://www.gnu.org/licenses/lgpl.html)
+  *The version used in DMX-84 is modified and thus is also released under the LGPL by section 2.a. (Conveying Modified Versions).
+*[Arduino Pro Mini](http://arduino.cc/en/Main/ArduinoBoardProMini): [CC BY-SA 3.0](https://creativecommons.org/licenses/by-sa/3.0/us/)
+
+All other software used in the project, as contained in the repository, is open source under the [GPL](http://www.gnu.org/licenses/gpl.html) version 3.
