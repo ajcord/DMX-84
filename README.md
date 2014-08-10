@@ -49,8 +49,8 @@ Open Source Licenses
 
 DMX-84 uses certain open source hardware and software.
 
-*[DmxSimple](http://code.google.com/p/tinkerit/wiki/DmxSimple) library: [LGPL](http://www.gnu.org/licenses/lgpl.html)
-  *The version used in DMX-84 is modified and thus is also released under the LGPL by section 2.a. (Conveying Modified Versions).
-*[Arduino Pro Mini](http://arduino.cc/en/Main/ArduinoBoardProMini): [CC BY-SA 3.0](https://creativecommons.org/licenses/by-sa/3.0/us/)
+* [DmxSimple](http://code.google.com/p/tinkerit/wiki/DmxSimple) library: [LGPL](http://www.gnu.org/licenses/lgpl.html)
+  * The version used in DMX-84 is modified and thus is also released under the LGPL by section 2.a. (Conveying Modified Versions).
+* [Arduino Pro Mini](http://arduino.cc/en/Main/ArduinoBoardProMini): [CC BY-SA 3.0](https://creativecommons.org/licenses/by-sa/3.0/us/)
 
 All other software used in the project, as contained in the repository, is open source under the [GPL](http://www.gnu.org/licenses/gpl.html) version 3.
