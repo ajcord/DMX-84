@@ -5,7 +5,7 @@
  * This file contains the external defines and prototypes for communicating
  * with the calculator and the serial port.
  *
- * Last modified August 10, 2014
+ * Last modified August 17, 2014
  *
  *
  * Copyright (C) 2014  Alex Cordonnier
@@ -50,6 +50,9 @@
 #define HEADER_LENGTH         4
 #define PACKET_DATA_LENGTH    513
 #define CHECKSUM_LENGTH       2
+
+//Serial parameters
+#define SERIAL_SPEED          9600
 
 /******************************************************************************
  * External global variables

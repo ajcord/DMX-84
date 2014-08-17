@@ -5,7 +5,7 @@
  * This file contains the code that processes received commands and generally
  * manages the Arduino.
  *
- * Last modified August 10, 2014
+ * Last modified August 17, 2014
  *
  *
  * Copyright (C) 2014  Alex Cordonnier
@@ -92,22 +92,6 @@ uint32_t lastCmdReceived = 0; //The time the last command was received
  */
 void setup() {
   initLED(); //Initialize the LED
-
-  /* Commented out because the temperature sensor can vary wildly between
-   * Arduinos and must be callibrated first, but there isn't a callibration
-   * mechanism implemented yet.
-   */
-  /*
-  //Core temperature self test
-  if (readTemp() > MAX_SYSTEM_TEMPERATURE) {
-    //Stop here and flash error
-    setError(UNKNOWN_ERROR);
-    while (1) {
-      blinkLED();
-    }
-  }
-  */
-
   initComm(); //Initialize communication
 
   resetStatus(); //No flags initially set
@@ -258,8 +242,12 @@ void processCommand(uint8_t cmd) {
     case 0x23: {
       //Sets a block of channels at once
       uint16_t startChannel = packetData[1] | (packetData[0] & 1) << 8; //The first channel of the block
-      uint16_t length = packetData[2]; //The number of channels to set
-      length = max(length, MAX_DMX - startChannel); //Don't go above channel 512
+      uint8_t length = packetData[2]; //The number of channels to set
+      //Check that the parameters won't go past the end of the universe
+      if (startChannel + length > MAX_DMX) {
+        setError(INVALID_VALUE_ERROR);
+        length = MAX_DMX - startChannel; //Don't go above channel 512
+      }
       for (uint16_t i = startChannel; i < length; i++) {
         dmxBuffer[i] = packetData[i + 2];
       }
@@ -274,7 +262,7 @@ void processCommand(uint8_t cmd) {
       //Increments all channels by a value
       uint8_t incrementAmount = packetData[1];
       for (uint16_t i = 0; i < 512; i++) {
-        if (dmxBuffer[i] + incrementAmount < 0xFF) { //Prevent overflow
+        if (dmxBuffer[i] + incrementAmount < 0xFF) { //Limit to ceiling
           dmxBuffer[i] += incrementAmount;
         }
       }
@@ -287,7 +275,7 @@ void processCommand(uint8_t cmd) {
       //Decrements all channels by a value
       uint8_t decrementAmount = packetData[1];
       for (uint16_t i = 0; i < 512; i++) {
-        if (dmxBuffer[i] >= decrementAmount) { //Prevent underflow
+        if (dmxBuffer[i] >= decrementAmount) { //Limit to floor
           dmxBuffer[i] -= decrementAmount;
         } else {
           dmxBuffer[i] = 0;
@@ -340,7 +328,6 @@ void processCommand(uint8_t cmd) {
     
     case 0x32: {
       //Exchange channel data between 0-255 and 256-511
-      //FIXME: Seems to sometimes set channel 256 to 0x32. Can't seem to reproduce anymore, though.
       uint8_t temp = 0;
       for (uint16_t i = 0; i < 256; i++) {
         //Swap the value of each low channel with its high counterpart
@@ -370,13 +357,13 @@ void processCommand(uint8_t cmd) {
     case 0x42: {
       //Reply with all channel values
       packetData[0] = cmd;
-      for (uint16_t i = 0; i < 512; i++) {
-        packetData[i+1] = dmxBuffer[i];
+      for (uint16_t i = 0; i < MAX_DMX; i++) {
+        packetData[i + 1] = dmxBuffer[i];
       }
-      send(packetData, 512);
+      send(packetData, MAX_DMX);
       
       Serial.println(F("Channel values:"));
-      for (uint16_t i = 0; i < 512; i++) {
+      for (uint16_t i = 0; i < MAX_DMX; i++) {
         Serial.print(dmxBuffer[i], HEX);
         Serial.print(F(" "));
       }

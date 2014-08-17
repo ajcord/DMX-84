@@ -4,7 +4,7 @@
  *
  * This file contains the external defines and prototypes for the main firmware.
  *
- * Last modified August 10, 2014
+ * Last modified August 17, 2014
  *
  *
  * Copyright (C) 2014  Alex Cordonnier
@@ -42,10 +42,13 @@
 #define TI_RING_PIN           4
 #define TI_TIP_PIN            6
 
-//Compile-time options
+//Compile-time options:
+//AUTO_SHUT_DOWN_ENABLED > 0 enables auto shutdown.
+//SERIAL_DEBUG_ENABLED > 0 enables serial input and output to a PC.
+//LED_MODE_* defines which LED flash pattern to use normally.
 #define AUTO_SHUT_DOWN_ENABLED      1
-#define SERIAL_DEBUG_ENABLED        1
-//LED mode. Uncomment one of the following LED_MODEs:
+#define SERIAL_DEBUG_ENABLED        0
+//Normal LED mode. Uncomment one of the following LED_MODEs:
 #define LED_MODE_HEARTBEAT
 //#define LED_MODE_SOLID
 

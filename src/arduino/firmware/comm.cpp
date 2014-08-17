@@ -5,7 +5,7 @@
  * This file contains the code for communicating with the calculator and the
  * serial port.
  *
- * Last modified August 10, 2014
+ * Last modified August 17, 2014
  *
  *
  * Copyright (C) 2014  Alex Cordonnier
@@ -87,7 +87,7 @@ uint8_t packetChecksum[CHECKSUM_LENGTH] = {0};
 void initComm(void) {
 #if SERIAL_DEBUG_ENABLED
   //Start serial communication with the computer
-  Serial.begin(115200);
+  Serial.begin(SERIAL_SPEED);
 #endif
 
   resetLines(); //Set up the I/O lines
@@ -104,7 +104,6 @@ void initComm(void) {
  * Note: Reuses packetHead and packetChecksum. Does not copy data to a separate
  * buffer.
  */
-
 void send(const uint8_t *data, uint16_t length) {
   packetHead[0] = MACHINE_ID;
   packetHead[1] = CMD_DATA;
