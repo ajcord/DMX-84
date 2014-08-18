@@ -1,6 +1,6 @@
 /**
  * DMX-84
- * Arduino firmware v0.5
+ * Arduino firmware v0.5.1
  *
  * This file contains the code that processes received commands and generally
  * manages the Arduino.
@@ -59,10 +59,7 @@
 //Firmware version
 #define FIRMWARE_VERSION_MAJOR          0
 #define FIRMWARE_VERSION_MINOR          5
-#define FIRMWARE_VERSION_PATCH          0
-
-//Miscellaneous
-#define MAX_SYSTEM_TEMPERATURE          85000 //85 degrees C / 185 degrees F
+#define FIRMWARE_VERSION_PATCH          1
 
 /******************************************************************************
  * Internal function prototypes

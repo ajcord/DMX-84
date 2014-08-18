@@ -125,6 +125,22 @@ calculator's batteries in case the calculator is powering the Arduino.
 Reference
 ---------
 
+### Serial interface settings
+
+To connect to the serial interface via a PC, first plug the adapter into the
+computer using a USB type A to mini-B cable. The settings for the virtual
+serial port are 9600/8-N-1:
+
+* 9600 bits per second
+* 8 data bits per byte
+* No parity
+* 1 stop bit
+
+You will need to know the port to use for communication. On Windows, check
+the Device Manager. On OS X and Linux, open Terminal and type or paste
+`ls /dev/tty*` to find the USB device.
+
+
 ### Command bytes
 
 Command | Name | Description | Following Data
@@ -146,14 +162,14 @@ Command | Name | Description | Following Data
 `0x32` | Exchange 256 channels | Exchanges 256 channels between 0-255 and 256-511. | None
 `0x40`, `0x41` | Get single channel value | Gets the value of a single channel. Last bit of command denotes upper bit of channel number. | Next byte is LSB of channel number.
 `0x42` | Get all channel values | Gets the value of all channels. | None
-`0xDB` | Debug Command | Sets the LED to blink in the debug pattern. | None
+`0xDB` | Debug | Sets the LED to blink in the debug pattern. | None
 `0xE0` | Stop DMX | Stops transmitting DMX. | None
 `0xE1` | Start DMX | Starts transmitting DMX. Note that DMX is set to transmit upon power up. | None
 `0xE2`, `0xE3` | Set max channels | Sets the maximum number of channels to transmit. Last bit of command denotes upper bit of channel number. Note that a value of 0 sets the max channels to 512. | Next byte is LSB of number of channels.
 `0xE4` | Start digital blackout | Transmits 0 for all channels, keeping the old values in memory. | None
 `0xE5` | Stop digital blackout | Transmits channels as they were before the digital blackout. | None
-`0xF0` | Shut down | Shuts down the Arduino, which responds with `0xF0` and then EOT. Only works in restricted mode. | None
-`0xF1` | Reset | Soft-resets the Arduino, which responds with `0xF1` and then EOT. Only works in restricted mode. | None
+`0xF0` | Shut down | Shuts down the Arduino, which echoes and then sends an EOT packet. Only works in restricted mode. | None
+`0xF1` | Reset | Soft-resets the Arduino, which echoes and then sends an EOT packet. Only works in restricted mode. | None
 `0xF8` | Status request | Responds with the current status flags. | None
 `0xF9` | Error request | Responds with the current error flags and then resets them. | None
 `0xFA` | Version request | Responds with the 3-byte protocol and firmware versions, little-Endian style. | None
@@ -165,14 +181,18 @@ Command | Name | Description | Following Data
 
 ### Status Codes
 
-Bit | Name | Values
+Bit | Name | Meaning
 ----|------|------------
-0 | DMX Enabled | 1: enabled, 0: disabled
-1 | Digital Blackout Enabled | 1: enabled, 0: disabled
-2 | Restricted Mode | 1: in restricted mode, 0: not in restricted mode
-4 | Received Handshake | 1: have received ready check packet, 0: have not
-5 | Sent Shutdown Warning | 1: have sent shutdown warning, 0: have not
-7 | Error Status | 1: errors have occurred since last error request, 0: no errors
+0 | DMX Enabled | DMX is enabled
+1 | Digital Blackout Enabled | Digital Blackout is enabled
+2 | Restricted Mode | Restricted commands may be executed
+3 | Debug Mode | The LED is blinking in the Debug flash pattern
+4 | Received Handshake | The Ready Check packet has been received
+5 | Sent Shutdown Warning | The auto shutdown warning has been sent
+6 | Serial Diagnostics | The command being processed was received over serial, not TI Link.
+7 | Error Status | Errors have occurred since last error request
+
+In normal operating mode, the status flag byte should equal `0x01`.
 
 
 ### Error Codes
@@ -187,3 +207,5 @@ Bit | Name | Description
 5 | Bad Packet | A packet was malformed or had an invalid checksum
 6 | Unknown Command | An unknown command was received
 7 | Unknown Error | An error occurred, but the exact cause cannot be determined
+
+In normal operating mode, the error flag byte should equal `0x00`.
