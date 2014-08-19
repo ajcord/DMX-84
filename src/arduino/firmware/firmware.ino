@@ -246,7 +246,7 @@ void processCommand(uint8_t cmd) {
         length = MAX_DMX - startChannel; //Don't go above channel 512
       }
       for (uint16_t i = startChannel; i < length; i++) {
-        dmxBuffer[i] = packetData[i + 2];
+        dmxBuffer[i] = packetData[i + 3];
       }
       Serial.print(F("Updated channels "));
       Serial.print(startChannel);
