@@ -1,11 +1,11 @@
 /**
  * DMX-84
- * Arduino firmware v0.5.1
+ * Arduino firmware v0.5.2
  *
  * This file contains the code that processes received commands and generally
  * manages the Arduino.
  *
- * Last modified August 17, 2014
+ * Last modified November 4, 2014
  *
  *
  * Copyright (C) 2014  Alex Cordonnier
@@ -35,7 +35,7 @@
 
 #include "firmware.h"
 #include "status.h"
-#include "comm.h"
+#include "link.h"
 #include "LED.h"
 
 /******************************************************************************
@@ -59,7 +59,7 @@
 //Firmware version
 #define FIRMWARE_VERSION_MAJOR          0
 #define FIRMWARE_VERSION_MINOR          5
-#define FIRMWARE_VERSION_PATCH          1
+#define FIRMWARE_VERSION_PATCH          2
 
 /******************************************************************************
  * Internal function prototypes
@@ -88,18 +88,16 @@ uint32_t lastCmdReceived = 0; //The time the last command was received
  * Note: This function is called once at power up.
  */
 void setup() {
-  initLED(); //Initialize the LED
-  initComm(); //Initialize communication
+  LED.init(); //Initialize the LED
 
-  resetStatus(); //No flags initially set
+  Status.reset(); //No flags initially set
 
   //Set up DMX
   DmxSimple.usePin(DMX_OUT_PIN); //Set the pin to transmit DMX on
   startTransmitDMX(); //Enable DMX
   setMaxChannel(DEFAULT_MAX_CHANNELS); //Set the max channels to transmit
 
-  //Tell the calculator we're up and running
-  sendTICommand(CMD_CTS);
+  Link.begin(); //Initialize the calculator link
 
   Serial.println(F("Ready"));
 }
@@ -110,16 +108,16 @@ void setup() {
  * Note: This function is called in a forever loop in main().
  */
 void loop() {
-  uint8_t cmd = getPacket();
+  uint8_t cmd = Link.getPacket();
 
   /* We received a command, so remember the timestamp and clear the shutdown 
    * warning status.
    */
   lastCmdReceived = millis();
-  if (testStatus(SENT_SHUT_DOWN_WARNING_STATUS)) {
+  if (Status.test(SENT_SHUT_DOWN_WARNING_STATUS)) {
     //We need to clear the status and reset the LED flashing since
     //auto shut down has been cancelled.
-    clearStatus(SENT_SHUT_DOWN_WARNING_STATUS);
+    Status.clear(SENT_SHUT_DOWN_WARNING_STATUS);
   }
 
   processCommand(cmd);
@@ -135,7 +133,7 @@ void processCommand(uint8_t cmd) {
   switch (cmd) {
     case 0x00: {
       //Heartbeat
-      send(&cmd, 1); //Echo the command to acknowledge it
+      Link.send(&cmd, 1); //Echo the command to acknowledge it
       Serial.println(F("Heartbeat"));
       break;
     }
@@ -143,10 +141,10 @@ void processCommand(uint8_t cmd) {
     case 0x01: {
       //Enable restricted mode
       //Allows protected commands to be executed for one second.
-      setStatus(RESTRICTED_MODE_STATUS);
+      Status.set(RESTRICTED_MODE_STATUS);
       enteredRestrictedMode = millis();
 
-      send(&cmd, 1); //Echo the command to acknowledge it
+      Link.send(&cmd, 1); //Echo the command to acknowledge it
       Serial.println(F("/!\\ Now in restricted mode"));
       break;
     }
@@ -154,8 +152,8 @@ void processCommand(uint8_t cmd) {
     case 0x10:
     case 0x11: {
       //Sets a single channel
-      uint16_t channel = packetData[1] | (cmd & 1) << 8;
-      uint16_t newValue = packetData[2];
+      uint16_t channel = Link.packetData[1] | (cmd & 1) << 8;
+      uint16_t newValue = Link.packetData[2];
       dmxBuffer[channel] = newValue;
       
       Serial.print(F("Updated channel "));
@@ -168,7 +166,7 @@ void processCommand(uint8_t cmd) {
     case 0x12:
     case 0x13: {
       //Increments a single channel by 1
-      uint16_t channel = packetData[1] | (cmd & 1) << 8;
+      uint16_t channel = Link.packetData[1] | (cmd & 1) << 8;
       if (dmxBuffer[channel] < 0xFF) {
         dmxBuffer[channel]++;
       }
@@ -181,7 +179,7 @@ void processCommand(uint8_t cmd) {
     case 0x14:
     case 0x15: {
       //Decrements a single channel by 1
-      uint16_t channel = packetData[1] | (cmd & 1) << 8;
+      uint16_t channel = Link.packetData[1] | (cmd & 1) << 8;
       if (dmxBuffer[channel] > 0x00) {
         dmxBuffer[channel]--;
       }
@@ -194,8 +192,8 @@ void processCommand(uint8_t cmd) {
     case 0x16:
     case 0x17: {
       //Increments a single channel by a number
-      uint16_t channel = packetData[1] | (cmd & 1) << 8;
-      uint8_t incrementAmount = packetData[2];
+      uint16_t channel = Link.packetData[1] | (cmd & 1) << 8;
+      uint8_t incrementAmount = Link.packetData[2];
       if (dmxBuffer[channel] + incrementAmount < 0xFF) { //Prevent overflow
         dmxBuffer[channel] += incrementAmount;
       }
@@ -210,8 +208,8 @@ void processCommand(uint8_t cmd) {
     case 0x18:
     case 0x19: {
       //Decrements a single channel by a number
-      uint16_t channel = packetData[1] | (cmd & 1) << 8;
-      uint8_t decrementAmount = packetData[2];
+      uint16_t channel = Link.packetData[1] | (cmd & 1) << 8;
+      uint8_t decrementAmount = Link.packetData[2];
       if (decrementAmount <= dmxBuffer[channel]) { //Prevent underflow
         dmxBuffer[channel] -= decrementAmount;
       } else {
@@ -229,7 +227,7 @@ void processCommand(uint8_t cmd) {
     case 0x21: {
       //Sets 256 channels at once
       for (uint16_t i = 0; i < 256; i++) {
-        dmxBuffer[i | (cmd & 1) << 8] = packetData[i + 1];
+        dmxBuffer[i | (cmd & 1) << 8] = Link.packetData[i + 1];
       }
       Serial.println(F("Updated 256 channels"));
       break;
@@ -238,15 +236,15 @@ void processCommand(uint8_t cmd) {
     case 0x22:
     case 0x23: {
       //Sets a block of channels at once
-      uint16_t startChannel = packetData[1] | (packetData[0] & 1) << 8; //The first channel of the block
-      uint8_t length = packetData[2]; //The number of channels to set
+      uint16_t startChannel = Link.packetData[1] | (Link.packetData[0] & 1) << 8; //The first channel of the block
+      uint8_t length = Link.packetData[2]; //The number of channels to set
       //Check that the parameters won't go past the end of the universe
       if (startChannel + length > MAX_DMX) {
-        setError(INVALID_VALUE_ERROR);
+        Error.set(INVALID_VALUE_ERROR);
         length = MAX_DMX - startChannel; //Don't go above channel 512
       }
       for (uint16_t i = startChannel; i < length; i++) {
-        dmxBuffer[i] = packetData[i + 3];
+        dmxBuffer[i] = Link.packetData[i + 3];
       }
       Serial.print(F("Updated channels "));
       Serial.print(startChannel);
@@ -257,7 +255,7 @@ void processCommand(uint8_t cmd) {
     
     case 0x24: {
       //Increments all channels by a value
-      uint8_t incrementAmount = packetData[1];
+      uint8_t incrementAmount = Link.packetData[1];
       for (uint16_t i = 0; i < 512; i++) {
         if (dmxBuffer[i] + incrementAmount < 0xFF) { //Limit to ceiling
           dmxBuffer[i] += incrementAmount;
@@ -270,7 +268,7 @@ void processCommand(uint8_t cmd) {
     
     case 0x25: {
       //Decrements all channels by a value
-      uint8_t decrementAmount = packetData[1];
+      uint8_t decrementAmount = Link.packetData[1];
       for (uint16_t i = 0; i < 512; i++) {
         if (dmxBuffer[i] >= decrementAmount) { //Limit to floor
           dmxBuffer[i] -= decrementAmount;
@@ -285,7 +283,7 @@ void processCommand(uint8_t cmd) {
     
     case 0x26: {
       //Sets all channels to the same value
-      uint8_t newValue = packetData[1];
+      uint8_t newValue = Link.packetData[1];
       for (uint16_t i = 0; i < 512; i++) {
         dmxBuffer[i] = newValue; //Set each channel to the new value
       }
@@ -297,7 +295,7 @@ void processCommand(uint8_t cmd) {
     case 0x27: {
       //Sets 512 channels at once
       for (uint16_t i = 0; i < 512; i++) {
-        dmxBuffer[i] = packetData[i + 1];
+        dmxBuffer[i] = Link.packetData[i + 1];
       }
       Serial.println(F("Updated 512 channels"));
       break;
@@ -340,9 +338,9 @@ void processCommand(uint8_t cmd) {
     case 0x40:
     case 0x41: {
       //Reply with channel value for specific channel
-      uint16_t channel = packetData[1] | (cmd & 1) << 8;
+      uint16_t channel = Link.packetData[1] | (cmd & 1) << 8;
       uint8_t packet[] = {cmd, dmxBuffer[channel]};
-      send(packet, 2);
+      Link.send(packet, 2);
       
       Serial.print(F("Channel "));
       Serial.print(channel);
@@ -353,11 +351,11 @@ void processCommand(uint8_t cmd) {
     
     case 0x42: {
       //Reply with all channel values
-      packetData[0] = cmd;
+      Link.packetData[0] = cmd;
       for (uint16_t i = 0; i < MAX_DMX; i++) {
-        packetData[i + 1] = dmxBuffer[i];
+        Link.packetData[i + 1] = dmxBuffer[i];
       }
-      send(packetData, MAX_DMX);
+      Link.send(Link.packetData, MAX_DMX);
       
       Serial.println(F("Channel values:"));
       for (uint16_t i = 0; i < MAX_DMX; i++) {
@@ -371,7 +369,7 @@ void processCommand(uint8_t cmd) {
 
     case 0xDB: {
       //Toggle the LED debug pattern
-      toggleStatus(DEBUG_STATUS);
+      Status.toggle(DEBUG_STATUS);
       break;
     }
     
@@ -394,7 +392,7 @@ void processCommand(uint8_t cmd) {
     case 0xE2:
     case 0xE3: {
       //Set max channels to transmit
-      uint16_t newMax = packetData[1] | (cmd & 1) << 8;
+      uint16_t newMax = Link.packetData[1] | (cmd & 1) << 8;
       if (newMax == 0) {
         //Since 512 can't be represented in 9 bits, 0 becomes 512.
         newMax = 512;
@@ -409,7 +407,7 @@ void processCommand(uint8_t cmd) {
     case 0xE4: {
       //Start a digital blackout
       DmxSimple.startDigitalBlackout();
-      setStatus(DIGITAL_BLACKOUT_ENABLED_STATUS);
+      Status.set(DIGITAL_BLACKOUT_ENABLED_STATUS);
       
       Serial.println(F("Started digital blackout"));
       break;
@@ -418,7 +416,7 @@ void processCommand(uint8_t cmd) {
     case 0xE5: {
       //Stop a digital blackout
       DmxSimple.stopDigitalBlackout();
-      clearStatus(DIGITAL_BLACKOUT_ENABLED_STATUS);
+      Status.clear(DIGITAL_BLACKOUT_ENABLED_STATUS);
       
       Serial.println(F("Stopped digital blackout"));
       break;
@@ -426,23 +424,23 @@ void processCommand(uint8_t cmd) {
     
     case 0xF0: {
       //Initiate safe shutdown sequence - only works in restricted mode
-      send(&cmd, 1);
+      Link.send(&cmd, 1);
       initShutDown();
       break;
     }
     
     case 0xF1: {
       //Initiate soft reset - only works in restricted mode
-      send(&cmd, 1);
+      Link.send(&cmd, 1);
       initShutDown(true);
       break;
     }
     
     case 0xF8: {
       //Reply with status flags
-      uint8_t status = getStatus();
+      uint8_t status = Status.get();
       uint8_t packet[] = {cmd, status};
-      send(packet, 2);
+      Link.send(packet, 2);
       
       Serial.print(F("Status flags: "));
       Serial.println(status, HEX);
@@ -451,14 +449,14 @@ void processCommand(uint8_t cmd) {
     
     case 0xF9: {
       //Reply with error flags
-      uint8_t errors = getErrors();
+      uint8_t errors = Error.get();
       uint8_t packet[] = {cmd, errors};
-      send(packet, 2);
+      Link.send(packet, 2);
       
       Serial.print(F("Error flags: "));
       Serial.println(errors, HEX);
       
-      resetErrors(); //Clear out the errors now that they have been reported
+      Error.reset(); //Clear out the errors now that they have been reported
       break;
     }
     
@@ -473,7 +471,7 @@ void processCommand(uint8_t cmd) {
         FIRMWARE_VERSION_MINOR,
         FIRMWARE_VERSION_MAJOR
       };
-      send(packet, 7);
+      Link.send(packet, 7);
       
       Serial.print(F("Protocol version: "));
       Serial.print(PROTOCOL_VERSION_MAJOR);
@@ -499,7 +497,7 @@ void processCommand(uint8_t cmd) {
         PROTOCOL_VERSION_MINOR,
         PROTOCOL_VERSION_MAJOR
       };
-      send(packet, 4);
+      Link.send(packet, 4);
       
       Serial.print(F("Protocol version: "));
       Serial.print(PROTOCOL_VERSION_MAJOR);
@@ -518,7 +516,7 @@ void processCommand(uint8_t cmd) {
         FIRMWARE_VERSION_MINOR,
         FIRMWARE_VERSION_MAJOR
       };
-      send(packet, 4);
+      Link.send(packet, 4);
       
       Serial.print(F("Firmware version: "));
       Serial.print(FIRMWARE_VERSION_MAJOR);
@@ -539,7 +537,7 @@ void processCommand(uint8_t cmd) {
         (temp & 0xFF0000) >> 16,
         (temp & 0xFF000000) >> 24
       };
-      send(packet, 5);
+      Link.send(packet, 5);
       
       Serial.print(F("Current temperature: "));
       Serial.print(temp/1000.0);
@@ -557,7 +555,7 @@ void processCommand(uint8_t cmd) {
         (uptime & 0xFF0000) >> 16,
         (uptime & 0xFF000000) >> 24
       };
-      send(packet, 5);
+      Link.send(packet, 5);
       
       Serial.print(F("Uptime: "));
       Serial.print(uptime/1000.0);
@@ -567,7 +565,7 @@ void processCommand(uint8_t cmd) {
     
     default: {
       //Unknown command; set the error code
-      setError(UNKNOWN_COMMAND_ERROR);
+      Error.set(UNKNOWN_COMMAND_ERROR);
       
       Serial.println(F("Error: unknown command"));
       break;
@@ -583,10 +581,10 @@ void processCommand(uint8_t cmd) {
 static bool setMaxChannel(uint16_t newMaxChannel) {
   //Setting max channels to zero disables DMX, so prevent that
   if (newMaxChannel == 0 || newMaxChannel > MAX_DMX) {
-    setError(INVALID_VALUE_ERROR); //Invalid value
+    Error.set(INVALID_VALUE_ERROR); //Invalid value
     return false;
-  } else if (!testStatus(DMX_ENABLED_STATUS)) {
-    setError(DMX_DISABLED_ERROR); //DMX is disabled
+  } else if (!Status.test(DMX_ENABLED_STATUS)) {
+    Error.set(DMX_DISABLED_ERROR); //DMX is disabled
     return false;
   } else {
     maxChannel = newMaxChannel;
@@ -600,7 +598,7 @@ static bool setMaxChannel(uint16_t newMaxChannel) {
  */
 static void startTransmitDMX(void) {
   DmxSimple.maxChannel(maxChannel); //Start transmitting DMX
-  setStatus(DMX_ENABLED_STATUS); //Set the transmit enable flag
+  Status.set(DMX_ENABLED_STATUS); //Set the transmit enable flag
 }
 
 /**
@@ -608,7 +606,7 @@ static void startTransmitDMX(void) {
  */
 static void stopTransmitDMX(void) {
   DmxSimple.maxChannel(0); //Stop transmitting DMX
-  clearStatus(DMX_ENABLED_STATUS); //Clear the transmit enable flag
+  Status.clear(DMX_ENABLED_STATUS); //Clear the transmit enable flag
 }
 
 /**
@@ -617,27 +615,27 @@ static void stopTransmitDMX(void) {
  * This function should be called periodically at least once per second.
  */
 void manageTimeouts() {
-  if (testStatus(RESTRICTED_MODE_STATUS) &&
+  if (Status.test(RESTRICTED_MODE_STATUS) &&
       (millis() - lastCmdReceived > RESTRICTED_MODE_TIMEOUT)) {
-    clearStatus(RESTRICTED_MODE_STATUS); //Clear the no-op flag after 1 second
+    Status.clear(RESTRICTED_MODE_STATUS); //Clear the no-op flag after 1 second
     Serial.println(F("Leaving restricted mode"));
   }
 
 #if AUTO_SHUT_DOWN_ENABLED
-  if (!testStatus(SENT_SHUT_DOWN_WARNING_STATUS) &&
+  if (!Status.test(SENT_SHUT_DOWN_WARNING_STATUS) &&
       ((millis() - lastCmdReceived) > AUTO_SHUT_DOWN_WARN_TIME)) {
     //We haven't received a message in a while and haven't sent a warning yet.
-    //Send the warning.
+    //Link.Send the warning.
     uint8_t packet[] = {'S', 'O', 'S'};
-    send(packet, 3);
-    setStatus(SENT_SHUT_DOWN_WARNING_STATUS);
+    Link.send(packet, 3);
+    Status.set(SENT_SHUT_DOWN_WARNING_STATUS);
     Serial.println(F("Sent inactivity warning"));
-  } else if (testStatus(SENT_SHUT_DOWN_WARNING_STATUS) &&
+  } else if (Status.test(SENT_SHUT_DOWN_WARNING_STATUS) &&
       ((millis() - lastCmdReceived) > AUTO_SHUT_DOWN_TIME)) {
     //It's been 1 minute since we sent a warning. Time to shut down.
     //Must enable restricted mode to shut down
     Serial.println(F("Shutting down..."));
-    setStatus(RESTRICTED_MODE_STATUS);
+    Status.set(RESTRICTED_MODE_STATUS);
     initShutDown();
   } else {
     //Do nothing
@@ -654,14 +652,14 @@ void manageTimeouts() {
  */
 
 void initShutDown(bool reset) {
-  if (!testStatus(RESTRICTED_MODE_STATUS)) {
-    setError(RESTRICTED_MODE_ERROR); //Last command wasn't no-op
+  if (!Status.test(RESTRICTED_MODE_STATUS)) {
+    Error.set(RESTRICTED_MODE_ERROR); //Last command wasn't no-op
     Serial.println(F("Error: must be in restricted mode"));
     return;
   }
 
-  //Send EOT to calculator to let it know we are going down
-  sendTICommand(CMD_EOT);
+  //Link.Send EOT to calculator to let it know we are going down
+  Link.send(CMD_EOT);
   
   //Prepare to shut down or reset
   if (reset) {

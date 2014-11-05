@@ -4,7 +4,7 @@
  *
  * This file contains the external defines and prototypes for managing the LED.
  *
- * Last modified August 10, 2014
+ * Last modified November 4, 2014
  *
  *
  * Copyright (C) 2014  Alex Cordonnier
@@ -60,16 +60,23 @@
 #define DEBUG_LED_DURATION              10
 
 /******************************************************************************
- * External global variables
+ * Class definition
  ******************************************************************************/
 
+class LEDClass {
+    public:
+        void init(void);
+        void update(void);
+        void choosePattern(void);
 
-/******************************************************************************
- * External function prototypes
- ******************************************************************************/
+    private:
+        uint32_t ledPattern;
+        uint32_t ledDuration;
 
-void initLED(void);
-void blinkLED(void);
-void chooseLEDPattern(void);
+        uint32_t previousPattern;
+        uint32_t previousDuration;
+};
+
+extern LEDClass LED;
 
 #endif

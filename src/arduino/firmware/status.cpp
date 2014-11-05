@@ -4,7 +4,7 @@
  *
  * This file contains the code for managing the system status and error flags.
  *
- * Last modified August 10, 2014
+ * Last modified November 4, 2014
  *
  *
  * Copyright (C) 2014  Alex Cordonnier
@@ -33,150 +33,114 @@
 #include "LED.h"
 
 /******************************************************************************
- * Internal constants
- ******************************************************************************/
-
-
-/******************************************************************************
- * Internal function prototypes
- ******************************************************************************/
-
-
-/******************************************************************************
- * Internal global variables
- ******************************************************************************/
-
-static uint8_t errorFlags = 0; //Any errors that have not yet been reported
-static uint8_t statusFlags = 0; //The current firmware status
-
-/******************************************************************************
  * Function definitions
  ******************************************************************************/
 
 /**
- * setError - Sets a status flag.
+ * set - Sets a status flag.
  *
  * Parameter:
  *    uint8_t status: the status flag to set
  */
-void setStatus(uint8_t status) {
-  statusFlags |= status;
-  chooseLEDPattern();
+void StatusClass::set(uint8_t status) {
+  flags |= status;
+  LED.choosePattern();
 }
 
 /**
- * clearStatus - Clears a status flag.
+ * clear - Clears a status flag.
  *
  * Parameter:
  *    uint8_t status: the status flag to clear
  */
-void clearStatus(uint8_t status) {
-  statusFlags &= ~status;
-  chooseLEDPattern();
+void StatusClass::clear(uint8_t status) {
+  flags &= ~status;
+  LED.choosePattern();
 }
 
 /**
- * toggleStatus - Toggles a status flag.
+ * toggle - Toggles a status flag.
  *
  * Parameter:
  *    uint8_t status: the status flag to toggle
  */
-void toggleStatus(uint8_t status) {
-  statusFlags ^= status;
-  chooseLEDPattern();
+void StatusClass::toggle(uint8_t status) {
+  flags ^= status;
+  LED.choosePattern();
 }
 
 /**
- * testError - Tests a status flag.
+ * test - Tests a status flag.
  *
  * Parameter:
  *    uint8_t status: the status flag to test
  * Returns:
  *    bool isSet: whether the flag is set or not
  */
-bool testStatus(uint8_t status) {
-  return (statusFlags & status ? true : false);
+bool StatusClass::test(uint8_t status) {
+  return (flags & status ? true : false);
 }
 
 /**
- * getStatus - Gets the current status flags.
+ * get - Gets the current status flags.
  *
  * Returns:
- *    uint8_t statusFlags: the current status flags
+ *    uint8_t flags: the current status flags
  */
-uint8_t getStatus(void) {
-  return statusFlags;
+uint8_t StatusClass::get(void) {
+  return flags;
 }
 
 /**
- * resetStatus - Resets the status flags.
+ * reset - Resets the status flags.
  */
-void resetStatus(void) {
-  statusFlags = 0;
-  chooseLEDPattern();
+void StatusClass::reset(void) {
+  flags = 0;
+  LED.choosePattern();
 }
 
 /**
- * setError - Sets the error status and changes the LED pattern.
+ * set - Sets the error status and changes the LED pattern.
  *
  * Parameter:
  *    uint8_t error: the new error code
  */
-void setError(uint8_t error) {
-  errorFlags |= error;
-  setStatus(ERROR_STATUS);
-  chooseLEDPattern();
+void ErrorClass::set(uint8_t error) {
+  flags |= error;
+  Status.set(ERROR_STATUS);
+  LED.choosePattern();
 }
 
 /**
- * clearError - Clears an error flag.
+ * clear - Clears an error flag.
  *
  * Parameter:
  *    uint8_t error: the error flag to clear
  */
-void clearError(uint8_t error) {
-  errorFlags &= ~error;
-  chooseLEDPattern();
+void ErrorClass::clear(uint8_t error) {
+  flags &= ~error;
+  LED.choosePattern();
 }
 
 /**
- * toggleError - Toggles an error flag.
+ * toggle - Toggles an error flag.
  *
  * Parameter:
  *    uint8_t error: the error flag to toggle
  */
-void toggleError(uint8_t error) {
-  errorFlags ^= error;
-  chooseLEDPattern();
+void ErrorClass::toggle(uint8_t error) {
+  flags ^= error;
+  LED.choosePattern();
 }
 
 /**
- * testError - Tests an error flag.
- *
- * Parameter:
- *    uint8_t error: the error flag to test
- * Returns:
- *    bool isSet: whether the flag is set or not
+ * reset - Resets the error flags and clears the error status.
  */
-bool testError(uint8_t error) {
-  return (errorFlags & error ? true : false);
+void ErrorClass::reset(void) {
+  flags = 0;
+  Status.clear(ERROR_STATUS);
+  LED.choosePattern();
 }
 
-/**
- * getErrors - Gets the current error flags.
- *
- * Returns:
- *    uint8_t errorFlags: the current error flags
- */
-uint8_t getErrors(void) {
-  return errorFlags;
-}
-
-/**
- * resetErrors - Resets the error flags and clears the error status.
- */
-void resetErrors(void) {
-  errorFlags = 0;
-  clearStatus(ERROR_STATUS);
-  chooseLEDPattern();
-}
+StatusClass Status; //Create a public Status instance
+ErrorClass Error; //Create a public Error instance

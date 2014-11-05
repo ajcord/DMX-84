@@ -4,7 +4,7 @@
  *
  * This file contains the code for managing the LED.
  *
- * Last modified August 10, 2014
+ * Last modified November 4, 2014
  *
  *
  * Copyright (C) 2014  Alex Cordonnier
@@ -40,21 +40,6 @@
 #define MILLISECONDS_PER_BLINK    100
 
 /******************************************************************************
- * Internal function prototypes
- ******************************************************************************/
-
-
-/******************************************************************************
- * Internal global variables
- ******************************************************************************/
-
-static uint32_t ledPattern = 0;
-static uint32_t ledDuration = 1;
-
-static uint32_t previousPattern = 0;
-static uint32_t previousDuration = 0;
-
-/******************************************************************************
  * Function definitions
  ******************************************************************************/
 
@@ -63,10 +48,12 @@ static uint32_t previousDuration = 0;
  *
  * This function should be called at power up.
  */
-void initLED(void) {
+void LEDClass::init(void) {
   pinMode(LED_PIN, OUTPUT);
   ledPattern = NORMAL_LED_PATTERN;
   ledDuration = NORMAL_LED_DURATION;
+  previousPattern = 0;
+  previousDuration = 0;
 }
 
 /**
@@ -74,7 +61,7 @@ void initLED(void) {
  *
  * This function should be called at least 10 times per second.
  */
-void blinkLED(void) {
+void LEDClass::update(void) {
   if (millis() % MILLISECONDS_PER_BLINK) { //Only change state every 100ms
     return;
   }
@@ -90,14 +77,14 @@ void blinkLED(void) {
 /**
  * chooseLEDPattern - Chooses the pattern to display based on the status flags.
  */
-void chooseLEDPattern(void) {
-  if (testStatus(DEBUG_STATUS)) {
+void LEDClass::choosePattern(void) {
+  if (Status.test(DEBUG_STATUS)) {
     ledPattern = DEBUG_LED_PATTERN;
     ledDuration = DEBUG_LED_DURATION;
-  } else if (testStatus(ERROR_STATUS)) {
+  } else if (Status.test(ERROR_STATUS)) {
     ledPattern = ERROR_LED_PATTERN;
     ledDuration = ERROR_LED_DURATION;
-  } else if (testStatus(SENT_SHUT_DOWN_WARNING_STATUS)) {
+  } else if (Status.test(SENT_SHUT_DOWN_WARNING_STATUS)) {
     ledPattern = SOS_LED_PATTERN;
     ledDuration = SOS_LED_DURATION;
   } else { //All systems nominal
@@ -105,3 +92,5 @@ void chooseLEDPattern(void) {
     ledDuration = NORMAL_LED_DURATION;
   }
 }
+
+LEDClass LED; //Create a public LED instance

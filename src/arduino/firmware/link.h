@@ -1,11 +1,11 @@
 /**
  * DMX-84
- * Communication header
+ * Link header
  *
  * This file contains the external defines and prototypes for communicating
  * with the calculator and the serial port.
  *
- * Last modified August 17, 2014
+ * Last modified November 4, 2014
  *
  *
  * Copyright (C) 2014  Alex Cordonnier
@@ -24,8 +24,8 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#ifndef COMM_H
-#define COMM_H
+#ifndef LINK_H
+#define LINK_H
 
 /******************************************************************************
  * Includes
@@ -55,24 +55,33 @@
 #define SERIAL_SPEED          9600
 
 /******************************************************************************
- * External global variables
+ * Class definition
  ******************************************************************************/
 
-/* These communication buffers are external so they can be reused as temporary
- * buffers by other files. Collectively, they use over a quarter of the SRAM.
- */
-extern uint8_t packetHead[HEADER_LENGTH];
-extern uint8_t packetData[PACKET_DATA_LENGTH];
-extern uint8_t packetChecksum[CHECKSUM_LENGTH];
+class LinkClass {
+    public:
+        void begin(void);
+        void send(const uint8_t *data, uint16_t length);
+        void send(uint8_t commandID);
+        void receive(uint8_t *data, uint16_t length);
+        uint8_t getPacket(void);
 
-/******************************************************************************
- * External function prototypes
- ******************************************************************************/
+        /* These communication buffers are public so they can be reused as
+         * temporary buffers by other files. Collectively, they use over a
+         * quarter of the SRAM.
+         */
+        uint8_t packetHead[HEADER_LENGTH];
+        uint8_t packetData[PACKET_DATA_LENGTH];
+        uint8_t packetChecksum[CHECKSUM_LENGTH];
 
-void initComm(void);
-void send(const uint8_t *data, uint16_t length);
-void sendTICommand(uint8_t commandID);
-void receive(uint8_t *data, uint16_t length);
-uint8_t getPacket(void);
+    private:
+        void printHex(const uint8_t *data, uint16_t length);
+        void resetLines(void);
+        uint16_t par_put(const uint8_t *data, uint16_t length);
+        uint16_t par_get(uint8_t *data, uint16_t length);
+        uint16_t checksum(const uint8_t *data, uint16_t length);
+};
+
+extern LinkClass Link;
 
 #endif

@@ -1,11 +1,11 @@
 /**
  * DMX-84
- * Communication code
+ * Link code
  *
  * This file contains the code for communicating with the calculator and the
  * serial port.
  *
- * Last modified August 17, 2014
+ * Last modified November 4, 2014
  *
  *
  * Copyright (C) 2014  Alex Cordonnier
@@ -30,7 +30,7 @@
 
 #include "Arduino.h"
 
-#include "comm.h"
+#include "link.h"
 #include "firmware.h"
 #include "status.h"
 #include "LED.h"
@@ -57,40 +57,23 @@
 #define GET_ENTER_TIMEOUT     30000
 
 /******************************************************************************
- * Internal function prototypes
- ******************************************************************************/
-
-static void printHex(const uint8_t *data, uint16_t length);
-static void resetLines(void);
-static uint16_t par_put(const uint8_t *data, uint16_t length);
-static uint16_t par_get(uint8_t *data, uint16_t length);
-static uint16_t checksum(const uint8_t *data, uint16_t length);
-
-/******************************************************************************
- * Internal global variables
- ******************************************************************************/
-
-//Buffers for input & output
-uint8_t packetHead[HEADER_LENGTH] = {0};
-uint8_t packetData[PACKET_DATA_LENGTH] = {0};
-uint8_t packetChecksum[CHECKSUM_LENGTH] = {0};
-
-/******************************************************************************
  * Function definitions
  ******************************************************************************/
 
 /**
- * initComm - Initializes communication with the calculator and serial port.
+ * begin - Initializes communication with the calculator and serial port.
  *
  * This function should be called once at power up.
  */
-void initComm(void) {
+void LinkClass::begin(void) {
 #if SERIAL_DEBUG_ENABLED
   //Start serial communication with the computer
   Serial.begin(SERIAL_SPEED);
 #endif
 
   resetLines(); //Set up the I/O lines
+
+  send(CMD_CTS); //Send the ready message
 }
 
 /**
@@ -104,7 +87,7 @@ void initComm(void) {
  * Note: Reuses packetHead and packetChecksum. Does not copy data to a separate
  * buffer.
  */
-void send(const uint8_t *data, uint16_t length) {
+void LinkClass::send(const uint8_t *data, uint16_t length) {
   packetHead[0] = MACHINE_ID;
   packetHead[1] = CMD_DATA;
   packetHead[2] = length & 0x00FF;
@@ -121,7 +104,7 @@ void send(const uint8_t *data, uint16_t length) {
   printHex(packetChecksum, CHECKSUM_LENGTH);
   Serial.println();
 
-  if (!testStatus(SERIAL_DIAGNOSTICS_STATUS)) {
+  if (!Status.test(SERIAL_DIAGNOSTICS_STATUS)) {
     //Prevent recursively calling receive()
 #endif
 
@@ -151,7 +134,7 @@ void send(const uint8_t *data, uint16_t length) {
 }
 
 /**
- * sendTICommand - Sends a TI command packet to the calculator.
+ * send - Sends a TI command packet to the calculator.
  *
  * Parameter:
  *    const uint8_t commandID: the command ID byte to send
@@ -159,7 +142,7 @@ void send(const uint8_t *data, uint16_t length) {
  * Note: Reuses packetHead.
  */
 
-void sendTICommand(uint8_t commandID) {
+void LinkClass::send(uint8_t commandID) {
   packetHead[0] = MACHINE_ID;
   packetHead[1] = commandID;
   packetHead[2] = 0;
@@ -186,7 +169,7 @@ void sendTICommand(uint8_t commandID) {
  * gets called about once per second.
  */
 
-void receive(uint8_t *data, uint16_t length) {
+void LinkClass::receive(uint8_t *data, uint16_t length) {
   //Serial variables
   uint8_t byte = 0;
   uint16_t validCharsRead = 0;
@@ -218,9 +201,9 @@ void receive(uint8_t *data, uint16_t length) {
         Serial.print(F("Debug: "));
         printHex(packetData, validBytesRead);
         Serial.println();
-        setStatus(SERIAL_DIAGNOSTICS_STATUS);
+        Status.set(SERIAL_DIAGNOSTICS_STATUS);
         processCommand(packetData[0]);
-        clearStatus(SERIAL_DIAGNOSTICS_STATUS);
+        Status.clear(SERIAL_DIAGNOSTICS_STATUS);
         validBytesRead = 0;
         validCharsRead = 0;
         continue;
@@ -248,7 +231,7 @@ void receive(uint8_t *data, uint16_t length) {
  * Also handles receiving the handshake.
  */
 
-uint8_t getPacket(void) {
+uint8_t LinkClass::getPacket(void) {
   bool keepWaiting = true;
   while (keepWaiting) {
     resetLines();
@@ -263,9 +246,9 @@ uint8_t getPacket(void) {
     
     if(packetHead[1] == CMD_RDY) { //Ready check - required once at startup
       Serial.println();
-      setStatus(RECEIVED_HANDSHAKE_STATUS);
-      sendTICommand(CMD_ACK);
-    } else if (testStatus(RECEIVED_HANDSHAKE_STATUS) &&
+      Status.set(RECEIVED_HANDSHAKE_STATUS);
+      send(CMD_ACK);
+    } else if (Status.test(RECEIVED_HANDSHAKE_STATUS) &&
         packetHead[1] == CMD_DATA) { //Data packet - everything after RDY
       //Data packet should always contain data, but check to be safe
       if (length) {
@@ -282,13 +265,13 @@ uint8_t getPacket(void) {
 
         if (calculatedChksm == receivedChksm) {
           //Checksum is valid. Acknowledge the packet.
-          sendTICommand(CMD_ACK);
+          send(CMD_ACK);
           //Stop waiting and return
           keepWaiting = false;
         } else {
           Serial.print(F("Error: expected checksum: "));
           Serial.println(calculatedChksm, HEX);
-          sendTICommand(CMD_ERR);
+          send(CMD_ERR);
         }
       }
     } else if (packetHead[1] == CMD_ACK) {
@@ -304,7 +287,7 @@ uint8_t getPacket(void) {
         receive(packetChecksum, CHECKSUM_LENGTH);
       }
       //Send a NAK to indicate the packet was ignored.
-      sendTICommand(CMD_SKIP_EXIT);
+      send(CMD_SKIP_EXIT);
       Serial.println(F("Sent NAK"));
     }
   }
@@ -321,7 +304,7 @@ uint8_t getPacket(void) {
  *    const uint8_t *data: A pointer to the data to print
  *    uint16_t length: The number of bytes to print
  */
-static void printHex(const uint8_t *data, uint16_t length) {
+void LinkClass::printHex(const uint8_t *data, uint16_t length) {
 #if SERIAL_DEBUG_ENABLED
   for (uint16_t i = 0; i < length; i++) {
     if (data[i] < 0x10) {
@@ -345,7 +328,7 @@ static void printHex(const uint8_t *data, uint16_t length) {
 /**
  * resetLines - Resets the ports used for TI linking
  */
-static void resetLines() {
+void LinkClass::resetLines() {
   pinMode(TI_RING_PIN, INPUT);           // set pin to input
   digitalWrite(TI_RING_PIN, HIGH);       // turn on pullup resistors
   pinMode(TI_TIP_PIN, INPUT);            // set pin to input
@@ -362,7 +345,7 @@ static void resetLines() {
  *    uint16_t error: Zero if there was no error
  *                    Nonzero error data if there was an error
  */
-static uint16_t par_put(const uint8_t *data, uint16_t length) {
+uint16_t LinkClass::par_put(const uint8_t *data, uint16_t length) {
   uint8_t bit;
   uint16_t j;
   uint32_t previousMillis = 0;
@@ -424,7 +407,7 @@ static uint16_t par_put(const uint8_t *data, uint16_t length) {
  *    uint16_t error: Zero if there was no error
  *                    Nonzero error data if there was an error
  */
-static uint16_t par_get(uint8_t *data, uint16_t length) {
+uint16_t LinkClass::par_get(uint8_t *data, uint16_t length) {
   uint8_t bit;
   uint16_t j;
   uint32_t previousMillis = 0;
@@ -434,7 +417,7 @@ static uint16_t par_get(uint8_t *data, uint16_t length) {
     for (bit = 0; bit < 8; bit++) {
       previousMillis = 0;
       while ((v = (digitalRead(TI_RING_PIN) << 1 | digitalRead(TI_TIP_PIN))) == 0x03) {
-        blinkLED(); // (ajcord) Added blinkLED() here since it needs to be called frequently
+        LED.update(); // (ajcord) Added blinkLED() here since it needs to be called frequently
         if (previousMillis++ > GET_ENTER_TIMEOUT)
           return ERR_READ_TIMEOUT + j + 100 * bit;
       }
@@ -481,10 +464,12 @@ static uint16_t par_get(uint8_t *data, uint16_t length) {
  * http://merthsoft.com/linkguide/ti83+/packet.html
  * Ported to Arduino by ajcord.
  */
-static uint16_t checksum(const uint8_t *data, uint16_t length) {
+uint16_t LinkClass::checksum(const uint8_t *data, uint16_t length) {
   uint16_t checksum = 0;
   for(uint16_t x = 0; x < length; x++) {
     checksum += data[x]; //overflow automatically limits to 16 bits
   }
   return checksum;
 }
+
+LinkClass Link; //Create a public Link instance

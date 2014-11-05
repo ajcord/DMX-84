@@ -5,7 +5,7 @@
  * This file contains the external defines and prototypes for managing the
  * system status and error flags.
  *
- * Last modified August 10, 2014
+ * Last modified November 4, 2014
  *
  *
  * Copyright (C) 2014  Alex Cordonnier
@@ -61,26 +61,31 @@
 #define COMMUNICATION_ERROR_MASK        0x78
 
 /******************************************************************************
- * External global variables
+ * Class definition
  ******************************************************************************/
 
+class StatusClass {
+    public:
+        virtual void set(uint8_t status);
+        virtual void clear(uint8_t status);
+        virtual void toggle(uint8_t status);
+        bool test(uint8_t status);
+        uint8_t get(void);
+        virtual void reset(void);
 
-/******************************************************************************
- * External function prototypes
- ******************************************************************************/
+    protected:
+        uint8_t flags;
+};
 
-void setStatus(uint8_t status);
-void clearStatus(uint8_t status);
-void toggleStatus(uint8_t status);
-bool testStatus(uint8_t status);
-uint8_t getStatus(void);
-void resetStatus(void);
+class ErrorClass: public StatusClass {
+    public:
+        virtual void set(uint8_t status);
+        virtual void clear(uint8_t status);
+        virtual void toggle(uint8_t status);
+        virtual void reset(void);
+};
 
-void setError(uint8_t error);
-void clearError(uint8_t error);
-void toggleError(uint8_t error);
-bool testError(uint8_t error);
-uint8_t getErrors(void);
-void resetErrors(void);
+extern StatusClass Status;
+extern ErrorClass Error;
 
 #endif
