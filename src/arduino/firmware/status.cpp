@@ -119,6 +119,10 @@ void ErrorClass::set(uint8_t error) {
  */
 void ErrorClass::clear(uint8_t error) {
   flags &= ~error;
+  //If there are no more remaining errors, clear the error status.
+  if (!flags) {
+    Status.clear(ERROR_STATUS);
+  }
   LED.choosePattern();
 }
 
@@ -130,6 +134,12 @@ void ErrorClass::clear(uint8_t error) {
  */
 void ErrorClass::toggle(uint8_t error) {
   flags ^= error;
+  //If there are remaining errors, set the error status. Else clear it.
+  if (flags) {
+    Status.set(ERROR_STATUS);
+  } else {
+    Status.clear(ERROR_STATUS);
+  }
   LED.choosePattern();
 }
 
