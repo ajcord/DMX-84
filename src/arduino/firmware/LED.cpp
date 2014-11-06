@@ -4,7 +4,7 @@
  *
  * This file contains the code for managing the LED.
  *
- * Last modified November 4, 2014
+ * Last modified November 5, 2014
  *
  *
  * Copyright (C) 2014  Alex Cordonnier
@@ -44,11 +44,11 @@
  ******************************************************************************/
 
 /**
- * initLED - Initializes the LED hardware and pattern.
+ * begin - Initializes the LED hardware and pattern.
  *
  * This function should be called at power up.
  */
-void LEDClass::init(void) {
+void LEDClass::begin(void) {
   pinMode(LED_PIN, OUTPUT);
   ledPattern = NORMAL_LED_PATTERN;
   ledDuration = NORMAL_LED_DURATION;
@@ -78,18 +78,23 @@ void LEDClass::update(void) {
  * chooseLEDPattern - Chooses the pattern to display based on the status flags.
  */
 void LEDClass::choosePattern(void) {
+
   if (Status.test(DEBUG_STATUS)) {
     ledPattern = DEBUG_LED_PATTERN;
     ledDuration = DEBUG_LED_DURATION;
+
   } else if (Status.test(ERROR_STATUS)) {
     ledPattern = ERROR_LED_PATTERN;
     ledDuration = ERROR_LED_DURATION;
+
   } else if (Status.test(SENT_SHUT_DOWN_WARNING_STATUS)) {
     ledPattern = SOS_LED_PATTERN;
     ledDuration = SOS_LED_DURATION;
+
   } else { //All systems nominal
     ledPattern = NORMAL_LED_PATTERN;
     ledDuration = NORMAL_LED_DURATION;
+
   }
 }
 

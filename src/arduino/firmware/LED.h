@@ -65,7 +65,7 @@
 
 class LEDClass {
     public:
-        void init(void);
+        void begin(void);
         void update(void);
         void choosePattern(void);
 

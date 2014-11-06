@@ -5,7 +5,7 @@
  * This file contains the code that processes received commands and generally
  * manages the Arduino.
  *
- * Last modified November 4, 2014
+ * Last modified November 5, 2014
  *
  *
  * Copyright (C) 2014  Alex Cordonnier
@@ -88,8 +88,6 @@ uint32_t lastCmdReceived = 0; //The time the last command was received
  * Note: This function is called once at power up.
  */
 void setup() {
-  LED.init(); //Initialize the LED
-
   Status.reset(); //No flags initially set
 
   //Set up DMX
@@ -97,6 +95,7 @@ void setup() {
   startTransmitDMX(); //Enable DMX
   setMaxChannel(DEFAULT_MAX_CHANNELS); //Set the max channels to transmit
 
+  LED.begin(); //Initialize the LED
   Link.begin(); //Initialize the calculator link
 
   Serial.println(F("Ready"));
@@ -662,11 +661,13 @@ void initShutDown(bool reset) {
   Link.send(CMD_EOT);
   
   //Prepare to shut down or reset
+  Serial.print(F("The system is going down for "));
   if (reset) {
-    Serial.println(F("The system is going down for reboot NOW!"));
+    Serial.print(F("reboot"));
   } else {
-    Serial.println(F("The system is going down for system halt NOW!"));
+    Serial.print(F("system halt"));
   }
+  Serial.println(F(" NOW!"));
 
   //Some final cleanup
   stopTransmitDMX();
