@@ -63,8 +63,7 @@ class LinkClass {
         void begin(void);
         void send(const uint8_t *data, uint16_t length);
         void send(uint8_t commandID);
-        void receive(uint8_t *data, uint16_t length);
-        uint8_t getPacket(void);
+        uint8_t receive(void);
 
         /* These communication buffers are public so they can be reused as
          * temporary buffers by other files. Collectively, they use over a
@@ -75,6 +74,7 @@ class LinkClass {
         uint8_t packetChecksum[CHECKSUM_LENGTH];
 
     private:
+        void receive(uint8_t *data, uint16_t length);
         void printHex(const uint8_t *data, uint16_t length);
         void resetLines(void);
         uint16_t par_put(const uint8_t *data, uint16_t length);

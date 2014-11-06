@@ -158,80 +158,16 @@ void LinkClass::send(uint8_t commandID) {
 }
 
 /**
- * receive - Waits to receive the specified length of data successfully.
- *
- * Parameters:
- *    uint8_t *data: a pointer to store the received data
- *    uint16_t length: the length of data to receive
- *
- * Retries receiving until the transmission doesn't time out.
- * Also manages the timeouts and serial debug processing since this function
- * gets called about once per second.
- */
-
-void LinkClass::receive(uint8_t *data, uint16_t length) {
-  //Serial variables
-  uint8_t byte = 0;
-  uint16_t validCharsRead = 0;
-  uint16_t validBytesRead = 0;
-
-  while (par_get(data, length)) {
-    manageTimeouts();
-
-#if SERIAL_DEBUG_ENABLED
-    //Get any serial data, converting chars to hex bytes
-    while (Serial.available()) {
-      char nextChar = Serial.read();
-      if (nextChar >= '0' && nextChar <= '9') {
-        byte <<= 4;
-        byte |= (nextChar - '0');
-        validCharsRead++;
-      } else if (nextChar >= 'A' && nextChar <= 'F') {
-        byte <<= 4;
-        byte |= (nextChar - 'A' + 10);
-        validCharsRead++;
-      } else if (nextChar >= 'a' && nextChar <= 'f') {
-        byte <<= 4;
-        byte |= (nextChar - 'a' + 10);
-        validCharsRead++;
-      } else if (nextChar == '\n') {
-        //This is the end of the transmission. Process the data.
-        //Serial.print(F("Received command: "));
-        //Serial.println(packetData[0], HEX);
-        Serial.print(F("Debug: "));
-        printHex(packetData, validBytesRead);
-        Serial.println();
-        Status.set(SERIAL_DIAGNOSTICS_STATUS);
-        processCommand(packetData[0]);
-        Status.clear(SERIAL_DIAGNOSTICS_STATUS);
-        validBytesRead = 0;
-        validCharsRead = 0;
-        continue;
-      } else {
-        //Invalid character. Skip adding the byte.
-        continue;
-      }
-      if (validCharsRead > 0 && validCharsRead % 2 == 0) {
-        packetData[validBytesRead] = byte;
-        validBytesRead++;
-        byte = 0;
-      }
-    }
-#endif
-  }
-}
-
-/**
- * getPacket - Waits for a valid packet to be received and stores received
- * data in packetData.
+ * receive - Waits for a valid packet to be received and stores received data
+ * in packetData.
  *
  * Returns:
  *    uint8_t cmd: the command byte received
  *
- * Also handles receiving the handshake.
+ * Also handles receiving the handshake if it hasn't already been received.
  */
 
-uint8_t LinkClass::getPacket(void) {
+uint8_t LinkClass::receive(void) {
   bool keepWaiting = true;
   while (keepWaiting) {
     resetLines();
@@ -295,6 +231,70 @@ uint8_t LinkClass::getPacket(void) {
   Serial.println();
 
   return packetData[0];
+}
+
+/**
+ * receive - Waits to receive the specified length of data successfully.
+ *
+ * Parameters:
+ *    uint8_t *data: a pointer to store the received data
+ *    uint16_t length: the length of data to receive
+ *
+ * Retries receiving until the transmission doesn't time out.
+ * Also manages the timeouts and serial debug processing since this function
+ * gets called about once per second.
+ */
+
+void LinkClass::receive(uint8_t *data, uint16_t length) {
+  //Serial variables
+  uint8_t byte = 0;
+  uint16_t validCharsRead = 0;
+  uint16_t validBytesRead = 0;
+
+  while (par_get(data, length)) {
+    manageTimeouts();
+
+#if SERIAL_DEBUG_ENABLED
+    //Get any serial data, converting chars to hex bytes
+    while (Serial.available()) {
+      char nextChar = Serial.read();
+      if (nextChar >= '0' && nextChar <= '9') {
+        byte <<= 4;
+        byte |= (nextChar - '0');
+        validCharsRead++;
+      } else if (nextChar >= 'A' && nextChar <= 'F') {
+        byte <<= 4;
+        byte |= (nextChar - 'A' + 10);
+        validCharsRead++;
+      } else if (nextChar >= 'a' && nextChar <= 'f') {
+        byte <<= 4;
+        byte |= (nextChar - 'a' + 10);
+        validCharsRead++;
+      } else if (nextChar == '\n') {
+        //This is the end of the transmission. Process the data.
+        //Serial.print(F("Received command: "));
+        //Serial.println(packetData[0], HEX);
+        Serial.print(F("Debug: "));
+        printHex(packetData, validBytesRead);
+        Serial.println();
+        Status.set(SERIAL_DIAGNOSTICS_STATUS);
+        processCommand(packetData[0]);
+        Status.clear(SERIAL_DIAGNOSTICS_STATUS);
+        validBytesRead = 0;
+        validCharsRead = 0;
+        continue;
+      } else {
+        //Invalid character. Skip adding the byte.
+        continue;
+      }
+      if (validCharsRead > 0 && validCharsRead % 2 == 0) {
+        packetData[validBytesRead] = byte;
+        validBytesRead++;
+        byte = 0;
+      }
+    }
+#endif
+  }
 }
 
 /**

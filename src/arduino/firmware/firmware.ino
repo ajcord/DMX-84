@@ -107,7 +107,7 @@ void setup() {
  * Note: This function is called in a forever loop in main().
  */
 void loop() {
-  uint8_t cmd = Link.getPacket();
+  uint8_t cmd = Link.receive();
 
   /* We received a command, so remember the timestamp and clear the shutdown 
    * warning status.
