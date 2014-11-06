@@ -4,7 +4,7 @@
  *
  * This file contains the external defines and prototypes for managing the LED.
  *
- * Last modified November 4, 2014
+ * Last modified November 5, 2014
  *
  *
  * Copyright (C) 2014  Alex Cordonnier
@@ -39,16 +39,9 @@
  ******************************************************************************/
 
 //Each pattern bit is 0.1 seconds. The LSbit occurs first.
-//Duration is the repeat time in tenths of seconds.
-#ifdef LED_MODE_HEARTBEAT
-//Heartbeat blink mode
+//Duration is the periodicity in tenths of seconds.
 #define NORMAL_LED_PATTERN              0b000001111111111
 #define NORMAL_LED_DURATION             15
-#else
-//Solid blink mode
-#define NORMAL_LED_PATTERN              0b1
-#define NORMAL_LED_DURATION             1
-#endif
 
 #define ERROR_LED_PATTERN               0b01
 #define ERROR_LED_DURATION              2

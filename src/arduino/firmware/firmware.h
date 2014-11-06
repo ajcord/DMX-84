@@ -4,7 +4,7 @@
  *
  * This file contains the external defines and prototypes for the main firmware.
  *
- * Last modified November 4, 2014
+ * Last modified November 5, 2014
  *
  *
  * Copyright (C) 2014  Alex Cordonnier
@@ -48,9 +48,6 @@
 //LED_MODE_* defines which LED flash pattern to use normally.
 #define AUTO_SHUT_DOWN_ENABLED      1
 #define SERIAL_DEBUG_ENABLED        1
-//Normal LED mode. Uncomment one of the following LED_MODEs:
-#define LED_MODE_HEARTBEAT
-//#define LED_MODE_SOLID
 
 /******************************************************************************
  * External function prototypes
